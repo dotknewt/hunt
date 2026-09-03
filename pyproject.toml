@@ -7,13 +7,13 @@ name = "hunt"
 version = "0.1.0"
 description = "Create, extend and validate task cards in an external Obsidian vault"
 requires-python = ">=3.11"
-dependencies = ["PyYAML>=6,<7"]
-
-[project.optional-dependencies]
-test = ["pytest>=8,<10"]
+dependencies = ["PyYAML>=6,<7", "shtab>=1.12,<2"]
 
 [project.scripts]
 hunt = "hunt.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8,<10"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

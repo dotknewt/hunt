@@ -1,2 +1,0 @@
-[console_scripts]
-hunt = hunt.cli:main

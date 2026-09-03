@@ -1,0 +1,6 @@
+# Everything text is LF in the index and in the work tree. Card files are
+# LF-only by specification (docs/card-spec.md Section 3.1) and the tests
+# compare bytes, so a Git client with core.autocrlf=true must not be able to
+# rewrite anything here. text=auto rather than bare text, so binaries are
+# left alone.
+* text=auto eol=lf

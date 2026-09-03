@@ -1,0 +1,49 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+      - run: uv run pytest
+
+  config-is-empty:
+    # hunt.conf is tracked so that a checkout has something to edit. The
+    # values it carries on main must stay empty, or somebody's local vault
+    # path enters the record. See docs/vault-spec.md Section 1.2.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: hunt.conf carries no values
+        run: |
+          expected=$'VAULT_PATH=""\nVAULT_BRANCH=""'
+          actual="$(grep -v '^[[:space:]]*\(#.*\)\?$' hunt.conf)"
+          if [ "$actual" != "$expected" ]; then
+            echo "hunt.conf must have empty values on main; found:" >&2
+            printf '%s\n' "$actual" >&2
+            exit 1
+          fi
+
+  line-endings:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: no CR byte in any committed text file
+        run: |
+          fail=0
+          while IFS= read -r f; do
+            if git show "HEAD:$f" | grep -qU $'\r'; then
+              echo "CR byte in $f" >&2
+              fail=1
+            fi
+          done < <(git grep -zIl '' HEAD | tr '\0' '\n' | sed 's/^HEAD://')
+          exit $fail

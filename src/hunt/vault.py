@@ -249,13 +249,50 @@ def _relative(vault: Path, path: Path) -> str:
         raise VaultError(f"path is outside the vault: {candidate}") from None
 
 
-def commit(vault: Path, paths: Iterable[Path], message: str) -> None:
+def ensure_on_branch(vault: Path, branch: str) -> None:
+    """vault-spec 4: HEAD must be VAULT_BRANCH, and VAULT_BRANCH is never main.
+
+    ensure_writable asks the same two questions, but as a preflight some time
+    before the commit. This is the version the commit path itself asks, so that
+    no caller - and no branch switch between preflight and commit - can make the
+    tool the thing that writes on `main` or on a branch it was not given.
+    """
+    vault = Path(vault)
+    if branch == MAIN_BRANCH:
+        raise VaultError(
+            f"refusing to commit on '{MAIN_BRANCH}': it is the record; "
+            "set VAULT_BRANCH to a working branch"
+        )
+    head = _head_branch(vault)
+    if head is None:
+        raise VaultError(
+            f"refusing to commit: vault {vault} has no branch checked out (detached HEAD), "
+            f"expected '{branch}'"
+        )
+    if head != branch:
+        raise VaultError(
+            f"refusing to commit: vault is on branch '{head}', not '{branch}'; "
+            f"run 'git -C {vault} checkout {branch}' first"
+        )
+
+
+def commit(vault: Path, paths: Iterable[Path], message: str, branch: str) -> None:
+    """Stage exactly `paths` and commit them on `branch`, which HEAD must be."""
     vault = Path(vault)
     relative = [_relative(vault, path) for path in paths]
     if not relative:
         raise VaultError("commit requires at least one path")
+    ensure_on_branch(vault, branch)
     _git(vault, "add", "--", *relative)
     _refuse_staged_cr(vault, relative)
+    # Asked again after staging: `git add` is the first thing this function
+    # does to the repository, and the commit is the one act that must never
+    # land on the wrong branch, so the check sits as close to it as it can.
+    try:
+        ensure_on_branch(vault, branch)
+    except VaultError:
+        _git(vault, "reset", "--quiet", "--", *relative, check=False)
+        raise
     _git(vault, "commit", "-m", message, "--", *relative)
 
 

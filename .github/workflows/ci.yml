@@ -7,7 +7,13 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # windows-latest is the whole threat model of vault-spec 8: Git for Windows
+    # defaults to core.autocrlf=true, and the LF guarantee has to survive it.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
@@ -15,6 +21,35 @@ jobs:
           enable-cache: true
       - run: uv sync --locked
       - run: uv run pytest
+
+  reference-vault:
+    # docs/references/task-cards is the conforming vault the tests copy from.
+    # Laid out as a real repository, `hunt validate` must find nothing in it;
+    # a spec change that breaks the references shows up here, not only in the
+    # unit tests that happen to read them.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+      - name: lay the references out as a vault
+        run: |
+          vault="$RUNNER_TEMP/vault"
+          mkdir -p "$vault"
+          cp -R docs/references/task-cards/. "$vault/"
+          printf '* text=auto eol=lf\n' > "$vault/.gitattributes"
+          git -C "$vault" init -q --initial-branch=main
+          git -C "$vault" -c user.name=ci -c user.email=ci@example.invalid \
+            add -A
+          git -C "$vault" -c user.name=ci -c user.email=ci@example.invalid \
+            commit -q -m "hunt: init"
+          git -C "$vault" checkout -q -b ci
+          printf 'VAULT_PATH="%s"\nVAULT_BRANCH="ci"\n' "$vault" > "$RUNNER_TEMP/hunt.conf"
+          echo "HUNT_CONF=$RUNNER_TEMP/hunt.conf" >> "$GITHUB_ENV"
+      - name: hunt validate finds nothing
+        run: uv run hunt validate
 
   config-is-empty:
     # hunt.conf is tracked so that a checkout has something to edit. The

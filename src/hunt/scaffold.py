@@ -1,7 +1,7 @@
-"""The files `hunt init` puts in a vault, so that Obsidian and git behave.
+"""The files `hunt init` puts in a vault, so that Obsidian, git and CI behave.
 
 vault-spec 5 lists this set normatively; the contents of the two dotfiles are
-normative there too, and the three `.obsidian` files are not. Everything here is
+normative there too, and the workflow and the three `.obsidian` files are not. Everything here is
 written only if absent, which is what keeps `hunt init` idempotent.
 """
 
@@ -36,6 +36,72 @@ GITIGNORE = """\
 # ignoring them keeps a stale one from dirtying the tree in the meantime.
 .DS_Store
 Thumbs.db
+"""
+
+WORKFLOW = """\
+# Written by `hunt init` (vault-spec 5). The vault's continuous integration:
+# vault-spec 8 requires the validation duties below to run on every merge
+# candidate and in a branch protection rule on `main`, because the tool itself
+# never pushes. Edit freely; hunt never overwrites this file once it exists.
+#
+# Branch protection to set on `main` (GitHub: Settings > Branches, or a
+# ruleset): require a pull request, require the `validate` and
+# `line-endings` checks to pass, and forbid force pushes and deletion.
+name: hunt
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  # The hunt revision this vault validates against. Pin to a tag or commit of
+  # https://github.com/dotknewt/hunt once one is chosen; `main` tracks the tool.
+  HUNT_REF: main
+
+jobs:
+  validate:
+    # card-spec 8.1: snapshot validation of the tree under review, including
+    # duplicate ids and filenames, numbering gaps, and CR bytes in any
+    # committed blob (vault-spec 8).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history: transition validation below compares against main.
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v5
+      - name: point hunt at this checkout
+        run: |
+          printf 'VAULT_PATH="%s"\\nVAULT_BRANCH="ci"\\n' "$GITHUB_WORKSPACE" \\
+            > "$RUNNER_TEMP/hunt.conf"
+          echo "HUNT_CONF=$RUNNER_TEMP/hunt.conf" >> "$GITHUB_ENV"
+      - name: hunt validate
+        run: uvx --from "git+https://github.com/dotknewt/hunt@$HUNT_REF" hunt validate
+      - name: transition validation against main (card-spec 8.2)
+        # Not enforced yet: `hunt validate --against <rev>` does not exist.
+        # When it does, replace the echo with:
+        #   uvx --from "git+https://github.com/dotknewt/hunt@$HUNT_REF" \\
+        #     hunt validate --against origin/main
+        if: github.event_name == 'pull_request'
+        run: echo "transition validation (card-spec 8.2) is not implemented yet"
+
+  line-endings:
+    # vault-spec 8, independent of hunt itself: no committed blob on the branch
+    # under review may hold a CR byte, whatever .gitattributes says.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: no CR byte in any committed text file
+        run: |
+          fail=0
+          while IFS= read -r f; do
+            if git show "HEAD:$f" | grep -qU $'\\r'; then
+              echo "CR byte in $f" >&2
+              fail=1
+            fi
+          done < <(git grep -zIl '' HEAD | tr '\\0' '\\n' | sed 's/^HEAD://')
+          exit $fail
 """
 
 APP = {
@@ -90,6 +156,7 @@ def files() -> dict[str, str]:
     return {
         ".gitattributes": GITATTRIBUTES,
         ".gitignore": GITIGNORE,
+        ".github/workflows/hunt.yml": WORKFLOW,
         ".obsidian/app.json": _json(APP),
         ".obsidian/core-plugins.json": _json(CORE_PLUGINS),
         ".obsidian/types.json": _json(TYPES),

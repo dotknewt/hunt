@@ -138,7 +138,7 @@ def test_commit_stages_only_the_given_paths(vault):
     unrelated = vault.path / "unrelated.md"
     unrelated.write_text("leave me\n", encoding="utf-8")
 
-    vaultmod.commit(vault.path, [wanted], "hunt: test")
+    vaultmod.commit(vault.path, [wanted], "hunt: test", vault.branch)
 
     committed = run_git(vault.path, "show", "--name-only", "--format=", "HEAD").split()
     assert committed == ["wanted.md"]
@@ -147,16 +147,48 @@ def test_commit_stages_only_the_given_paths(vault):
 
 def test_commit_requires_at_least_one_path(vault):
     with pytest.raises(VaultError, match="at least one path"):
-        vaultmod.commit(vault.path, [], "hunt: empty")
+        vaultmod.commit(vault.path, [], "hunt: empty", vault.branch)
 
 
 def test_commit_refuses_a_path_outside_the_vault(vault, tmp_path):
     outside = tmp_path / "outside.md"
     outside.write_text("no\n", encoding="utf-8")
     with pytest.raises(VaultError, match="outside the vault"):
-        vaultmod.commit(vault.path, [outside], "hunt: escape")
+        vaultmod.commit(vault.path, [outside], "hunt: escape", vault.branch)
 
 
 def test_commit_refuses_a_relative_path_that_escapes(vault):
     with pytest.raises(VaultError, match="outside the vault"):
-        vaultmod.commit(vault.path, ["../escape.md"], "hunt: escape")
+        vaultmod.commit(vault.path, ["../escape.md"], "hunt: escape", vault.branch)
+
+
+# --- commit: the branch is checked again at the commit itself (vault-spec 4) --
+
+
+def test_commit_refuses_when_main_is_the_branch(vault):
+    run_git(vault.path, "checkout", "-q", "main")
+    target = vault.path / "card.md"
+    target.write_text("x\n", encoding="utf-8")
+    with pytest.raises(VaultError, match="refusing to commit on 'main'"):
+        vaultmod.commit(vault.path, [target], "hunt: test", "main")
+    assert run_git(vault.path, "log", "--format=%s").splitlines() == ["root"]
+    assert "card.md" not in run_git(vault.path, "diff", "--cached", "--name-only")
+
+
+def test_commit_refuses_when_head_is_not_the_given_branch(vault):
+    run_git(vault.path, "checkout", "-q", "main")
+    target = vault.path / "card.md"
+    target.write_text("x\n", encoding="utf-8")
+    with pytest.raises(VaultError, match="on branch 'main', not '%s'" % vault.branch):
+        vaultmod.commit(vault.path, [target], "hunt: test", vault.branch)
+    assert run_git(vault.path, "log", "--format=%s").splitlines() == ["root"]
+    assert run_git(vault.path, "diff", "--cached", "--name-only") == ""
+
+
+def test_commit_refuses_a_detached_head(vault):
+    run_git(vault.path, "checkout", "-q", "--detach")
+    target = vault.path / "card.md"
+    target.write_text("x\n", encoding="utf-8")
+    with pytest.raises(VaultError, match="detached HEAD"):
+        vaultmod.commit(vault.path, [target], "hunt: test", vault.branch)
+    assert run_git(vault.path, "log", "--format=%s").splitlines() == ["root"]

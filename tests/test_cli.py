@@ -17,6 +17,7 @@ FINDING_RE = re.compile(r"^(?P<path>\S+): (?P<code>[A-Za-z0-9_.-]+): \S.*$")
 # vault-spec 5 lists these normatively; `hunt init` writes exactly them.
 SCAFFOLD = (
     ".gitattributes",
+    ".github/workflows/hunt.yml",
     ".gitignore",
     ".obsidian/app.json",
     ".obsidian/core-plugins.json",
@@ -140,6 +141,7 @@ def test_lifecycle(vault):
     assert len(subjects(vault)) == base + 1
     assert subjects(vault)[0] == "hunt: init"
     assert staged_in_head(vault) == [
+        ".github/workflows/hunt.yml",
         ".gitignore",
         ".obsidian/app.json",
         ".obsidian/core-plugins.json",
@@ -690,9 +692,10 @@ def test_the_tool_refuses_to_commit_a_staged_crlf_card(vault):
             sys.executable,
             "-c",
             "import sys; from hunt import vault as v; "
-            "v.commit(sys.argv[1], [sys.argv[2]], 'hunt: bad')",
+            "v.commit(sys.argv[1], [sys.argv[2]], 'hunt: bad', sys.argv[3])",
             str(vault.path),
             str(target),
+            vault.branch,
         ],
         env={**os.environ, "PYTHONPATH": str(SRC)},
         capture_output=True,

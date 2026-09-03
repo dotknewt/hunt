@@ -1,6 +1,6 @@
 # Vault Location, Configuration, and Git Workflow
 
-**Version:** 2
+**Version:** 3
 **Status:** normative configuration and workflow contract.
 **Scope:** where the vault lives, how a tool finds it, what may exist inside
 it, which branch is written, what MUST be true before any write, how each
@@ -18,6 +18,10 @@ the root inventory (Section 3). Section 8, holding line endings to LF, is new.
 An empty configuration value now means *unconfigured* rather than being an error
 (Section 1.2). The root commit MAY carry the scaffold that Section 5 now
 defines, and Section 4 binds `main` to the card spec's *accepted tree*.
+v3 admits `.github/` to the root inventory (Section 3) as the home of the
+vault's continuous integration, adds the workflow that runs it to the scaffold
+(Section 5), and requires the branch check of Section 4 at the moment of the
+commit itself, not only as a precondition (Section 6).
 
 Keywords **MUST**, **MUST NOT**, **SHOULD**, **SHOULD NOT**, **MAY** are
 normative (RFC 2119 sense).
@@ -187,6 +191,7 @@ The direct children of the vault root are exactly:
 |---|---|
 | the category directories | the card tree; contents governed by the card spec |
 | `.git/` | Git's own state |
+| `.github/` | the vault's continuous integration (Section 8) |
 | `.obsidian/` | Obsidian's own state |
 | `.gitignore` | see below |
 | `.gitattributes` | see below |
@@ -194,9 +199,12 @@ The direct children of the vault root are exactly:
 Nothing else MAY appear there: no attachment, no template, no tooling asset, and
 no Markdown file outside a parent directory.
 
-- `.git/` and `.obsidian/` are the two entries whose contents this contract does
-  not constrain. Both are exempt from the card spec's file rules; everything
-  else under the vault root is not.
+- `.git/`, `.github/` and `.obsidian/` are the three entries whose contents
+  this contract does not constrain. All three are exempt from the card spec's
+  file rules; everything else under the vault root is not. `.github/` exists
+  because Section 8 makes validation on the remote a duty of the vault's
+  continuous integration, and that is where the hosting service reads it; a
+  vault not hosted there MAY omit it.
 - `.gitignore` is permitted, and SHOULD exist, because the clean-work-tree
   precondition (Section 5) is otherwise unsatisfiable on a filesystem that
   writes stray metadata into every directory, and because `.obsidian/` holds
@@ -326,6 +334,7 @@ scaffold** exists and is committed. The scaffold is exactly these files:
 |---|---|
 | `.gitattributes` | holds the line-ending rule in force (Section 8) |
 | `.gitignore` | makes the work tree cleanable (Section 3) |
+| `.github/workflows/hunt.yml` | runs validation on every merge candidate (Section 8) |
 | `.obsidian/app.json` | editor settings that keep an edited card conformant |
 | `.obsidian/core-plugins.json` | the editor's enabled core plugins |
 | `.obsidian/types.json` | the editor's frontmatter property types |
@@ -335,7 +344,10 @@ three `.obsidian/` files are Obsidian's own state, so this contract does not
 constrain what they say; initialization writes them because an unconfigured
 editor rewrites card frontmatter into shapes the card spec forbids, and a vault
 that fails validation the first time a human opens it is not initialized in any
-useful sense.
+useful sense. The workflow's contents are likewise not normative; what it MUST
+do is stated in Section 8, and initialization writes it because the duties
+Section 8 places on the remote are otherwise nobody's, and a vault whose `main`
+accepts an unvalidated merge is not the record Section 4 makes it.
 
 Initialization MUST be idempotent: on an already-initialized vault - one where
 that postcondition already holds - it verifies and succeeds without writing. It
@@ -373,6 +385,12 @@ empty.
   at most once per branch: as the root commit on `main` for a vault this tool
   created, or on `VAULT_BRANCH` for a vault that predates the scaffold and was
   completed later (Section 5).
+- **The branch is checked at the commit.** Immediately before committing, the
+  tool MUST confirm again that `HEAD` is `VAULT_BRANCH` and that `VAULT_BRANCH`
+  is not `main` (Section 4), and MUST refuse, unstaging what it staged, when
+  either fails. Precondition 4 asks the same question earlier; this is the
+  answer that no caller of the commit path, and no branch switch between the
+  preflight and the commit, can bypass.
 - **Identity is the repository's.** The commit uses the vault repository's
   configured author and committer. The tool MUST NOT override them and MUST
   NOT add trailers, sign-offs, or co-author lines.
@@ -460,3 +478,13 @@ both the byte rule and the re-render comparison that validation depends on.
   itself, because it never pushes (Section 6). The enforcement is the two
   validation duties above, run in the vault's continuous integration and in a
   branch protection rule that rejects a push failing them.
+- **The vault's continuous integration.** The workflow of Section 5 MUST, on
+  every merge candidate for `main` and on every push to `main`, run snapshot
+  validation (`docs/card-spec.md` Section 8.1) over the tree under review and
+  the committed-blob check above over its blobs, and fail on any finding. It
+  SHOULD run transition validation (`docs/card-spec.md` Section 8.2) against
+  `main` once a validator implements it; until one does, that step is a
+  placeholder and the check is a duty of the human review (Section 4). The
+  remote's `main` SHOULD be protected by a rule that requires those checks to
+  pass, requires a pull request, and forbids force pushes and deletion. This
+  contract does not otherwise constrain the workflow's contents.

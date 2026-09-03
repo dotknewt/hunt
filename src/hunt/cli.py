@@ -200,7 +200,9 @@ def cmd_init(args, today):
         # The root commit is already written and the tool never commits on main
         # again (vault-spec 4), so an existing vault gets the scaffold on its
         # working branch instead.
-        vault.commit(config.vault_path, created, vault.INIT_SUBJECT)
+        vault.commit(
+            config.vault_path, created, vault.INIT_SUBJECT, config.vault_branch
+        )
     for path in created:
         print("created %s" % path)
     print("initialized %s on %s" % (config.vault_path, config.vault_branch))
@@ -220,7 +222,9 @@ def cmd_new(args, today):
         cards.parent_path(config.vault_path, parent_id),
         cards.render_parent(parent, []),
     )
-    vault.commit(config.vault_path, [path], "hunt: new %s" % parent_id)
+    vault.commit(
+        config.vault_path, [path], "hunt: new %s" % parent_id, config.vault_branch
+    )
     print(parent_id)
     return 0
 
@@ -248,7 +252,10 @@ def cmd_run(args, today):
     )
     parent_target = _write(config, parent_path, cards.render_parent(parent, runs))
     vault.commit(
-        config.vault_path, [run_target, parent_target], "hunt: run %s" % run_ident
+        config.vault_path,
+        [run_target, parent_target],
+        "hunt: run %s" % run_ident,
+        config.vault_branch,
     )
     print(run_ident)
     return 0

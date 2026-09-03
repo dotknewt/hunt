@@ -146,6 +146,14 @@ def test_unknown_category_directory(good):
     assert "path.unknown-category-dir" in codes(good.path)
 
 
+def test_a_github_directory_is_not_a_finding(good):
+    """vault-spec 3: .github/ holds the vault's CI and is exempt like .obsidian/."""
+    workflows = good.path / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    (workflows / "hunt.yml").write_text("name: hunt\n", encoding="utf-8")
+    assert codes(good.path) == []
+
+
 def test_parent_directory_missing_its_index(good):
     (good.path / BSL).unlink()
     assert "path.missing-index" in codes(good.path)

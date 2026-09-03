@@ -9,7 +9,9 @@ from pathlib import Path
 from . import cards, vault as vaultmod
 from .vault import OS_ARTIFACTS, ROOT_FILES
 
-VAULT_DIRS = (".git", ".obsidian")
+# vault-spec 3: the directories whose contents the vault contract does not
+# constrain. Everything else at the root is the card tree or a violation.
+VAULT_DIRS = (".git", ".github", ".obsidian")
 
 _QUOTE_LIMIT = 120
 
@@ -277,7 +279,7 @@ def _stray_file(entry, findings, stems):
             Finding(
                 entry,
                 "path.stray-file",
-                "only card files may live under the vault root, outside .obsidian and .git",
+                "only card files may live under the vault root, outside .git, .github and .obsidian",
             )
         )
 

@@ -6,7 +6,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 
-from . import cards
+from . import cards, vault as vaultmod
+from .vault import OS_ARTIFACTS, ROOT_FILES
 
 VAULT_DIRS = (".git", ".obsidian")
 
@@ -78,14 +79,87 @@ def validate_vault(vault_path):
                 )
                 continue
             categories[code] = _scan_category(entry, code, findings, stems)
-        else:
+        elif entry.name not in ROOT_FILES and entry.name not in OS_ARTIFACTS:
+            # vault-spec 3 lists these as root contents. The exemption stays
+            # here rather than in _stray_file, which _scan_category also calls:
+            # baseline/.gitignore is still a violation.
             _stray_file(entry, findings, stems)
     for code in sorted(categories):
         _check_parent_numbers(vault, code, categories[code], findings)
         for scan in categories[code]:
             _check_parent(scan, findings)
     findings.extend(_stem_collisions(stems))
+    _check_git(vault, _card_paths(categories), findings)
     return _ordered(findings)
+
+
+def _card_paths(categories):
+    paths = []
+    for scans in categories.values():
+        for scan in scans:
+            if scan.index is not None:
+                paths.append(scan.index)
+            paths.extend(scan.runs[number] for number in sorted(scan.runs))
+    return paths
+
+
+def _check_git(vault, card_paths, findings):
+    """vault-spec 3 and 8: what git records, and what it is allowed to hide.
+
+    Silent on a tree that is not a repository, because every rule here is a
+    statement about a repository. validate_parent_dir does not run these: they
+    are properties of the vault, not of one card.
+    """
+    if not vaultmod.is_repo(vault):
+        return
+
+    attributes = vault / ".gitattributes"
+    if not attributes.is_file():
+        findings.append(
+            Finding(
+                attributes,
+                "path.missing-gitattributes",
+                "the vault root needs '* text=auto eol=lf'; without it a Windows "
+                "checkout records CRLF",
+            )
+        )
+    elif card_paths:
+        for path in card_paths:
+            attrs = vaultmod.text_attributes(vault, [path]).get(
+                str(path.relative_to(vault).as_posix()), {}
+            )
+            if attrs.get("text") in ("auto", "set") and attrs.get("eol") == "lf":
+                continue
+            findings.append(
+                Finding(
+                    path,
+                    "bytes.crlf-permitted",
+                    "the git attributes of this card do not force LF on check-in "
+                    f"(text={attrs.get('text', 'unspecified')}, "
+                    f"eol={attrs.get('eol', 'unspecified')})",
+                )
+            )
+
+    for name in sorted(vaultmod.ignored(vault, card_paths)):
+        findings.append(
+            Finding(
+                vault / name,
+                "path.gitignore-hides-card",
+                "a .gitignore hides this card, so it can never be committed",
+            )
+        )
+
+    for name, data in vaultmod.tracked_blobs(vault):
+        carriage = data.find(b"\r")
+        if carriage >= 0:
+            findings.append(
+                Finding(
+                    vault / name,
+                    "bytes.crlf-committed",
+                    f"the committed blob has a carriage return at line "
+                    f"{_line(data, carriage)}; what a remote receives must be LF",
+                )
+            )
 
 
 def validate_parent_dir(vault_path, parent_id):
@@ -111,7 +185,8 @@ def _scan_category(directory, code, findings, stems):
     scans = []
     for entry in _entries(directory):
         if not entry.is_dir():
-            _stray_file(entry, findings, stems)
+            if entry.name not in OS_ARTIFACTS:
+                _stray_file(entry, findings, stems)
             continue
         match = cards.PARENT_RE.fullmatch(entry.name)
         named = match is not None and match.group("category") == code
@@ -139,6 +214,8 @@ def _scan_parent(directory, parent, findings, stems):
             findings.append(Finding(entry, "path.bad-parent-dir", message))
             continue
         name = entry.name
+        if name in OS_ARTIFACTS:
+            continue
         if not name.endswith(".md"):
             findings.append(
                 Finding(

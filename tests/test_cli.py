@@ -14,6 +14,15 @@ DATE2 = "2026-08-28"
 
 FINDING_RE = re.compile(r"^(?P<path>\S+): (?P<code>[A-Za-z0-9_.-]+): \S.*$")
 
+# vault-spec 5 lists these normatively; `hunt init` writes exactly them.
+SCAFFOLD = (
+    ".gitattributes",
+    ".gitignore",
+    ".obsidian/app.json",
+    ".obsidian/core-plugins.json",
+    ".obsidian/types.json",
+)
+
 
 def run_hunt(*args, cwd, conf=None, **env_extra):
     env = {
@@ -87,7 +96,10 @@ def assert_file_conventions(path):
 def assert_tree_conventions(vault):
     cards = sorted(vault.path.rglob("*.md"))
     assert cards
-    for path in cards:
+    # The scaffold lives in the vault too, and vault-spec 8 does not exempt it.
+    scaffolded = [vault.path / name for name in SCAFFOLD]
+    assert any(path.is_file() for path in scaffolded)
+    for path in cards + [path for path in scaffolded if path.is_file()]:
         assert_file_conventions(path)
 
 
@@ -123,6 +135,21 @@ def test_lifecycle(vault):
 
     result = hunt(vault, "init")
     assert result.returncode == 0, result.stderr
+    # This vault already has .gitattributes and main, so the rest of the
+    # scaffold lands in one commit on the working branch.
+    assert len(subjects(vault)) == base + 1
+    assert subjects(vault)[0] == "hunt: init"
+    assert staged_in_head(vault) == [
+        ".gitignore",
+        ".obsidian/app.json",
+        ".obsidian/core-plugins.json",
+        ".obsidian/types.json",
+    ]
+    assert_clean(vault)
+    base = len(subjects(vault))
+
+    # Idempotent: a second run finds the scaffold in place and writes nothing.
+    assert hunt(vault, "init").returncode == 0
     assert len(subjects(vault)) == base
     assert_clean(vault)
 
@@ -465,3 +492,239 @@ def test_hidden_complete_stays_silent_when_nothing_is_configured(tmp_path):
         assert result.returncode == 0, result.stderr
         assert result.stdout == ""
         assert result.stderr == ""
+
+
+# --- init writes hunt.conf and scaffolds a fresh vault (vault-spec 1.2, 5) ----
+
+GIT_IDENTITY = {
+    "GIT_AUTHOR_NAME": "hunt tests",
+    "GIT_AUTHOR_EMAIL": "tests@example.invalid",
+    "GIT_COMMITTER_NAME": "hunt tests",
+    "GIT_COMMITTER_EMAIL": "tests@example.invalid",
+}
+
+
+def init_in(tmp_path, *args, conf=None, **env_extra):
+    """`hunt init` in a directory with no vault, carrying a git identity.
+
+    run_hunt scrubs GIT_* so a test cannot inherit the developer's git
+    environment, which also removes the identity the root commit needs.
+    """
+    return run_hunt("init", *args, cwd=tmp_path, conf=conf, **GIT_IDENTITY, **env_extra)
+
+
+def read_conf(tmp_path):
+    return (tmp_path / "hunt.conf").read_text()
+
+
+def test_init_populates_an_empty_conf_and_scaffolds_the_root_commit(tmp_path):
+    conf = empty_conf(tmp_path)
+    vault_path = tmp_path / "vault"
+    result = init_in(
+        tmp_path,
+        "--vault-path",
+        str(vault_path),
+        "--vault-branch",
+        "drafting",
+        conf=conf,
+    )
+    assert result.returncode == 0, result.stderr
+    assert 'VAULT_PATH="%s"' % vault_path in conf.read_text()
+    assert 'VAULT_BRANCH="drafting"' in conf.read_text()
+
+    def git_in(*args):
+        return subprocess.run(
+            ["git", "-C", str(vault_path), *args],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+
+    # vault-spec 8: the LF guarantee has to be in force before the first card,
+    # so the scaffold is in the root commit on main, not on the working branch.
+    assert sorted(git_in("ls-tree", "-r", "--name-only", "main").split()) == sorted(
+        SCAFFOLD
+    )
+    assert git_in("rev-parse", "--abbrev-ref", "HEAD").strip() == "drafting"
+    assert git_in("log", "--format=%s").splitlines() == ["hunt: init"]
+    assert git_in("status", "--porcelain") == ""
+    for name in SCAFFOLD:
+        assert_file_conventions(vault_path / name)
+
+
+def test_init_creates_a_conf_where_none_was_found(tmp_path):
+    result = init_in(
+        tmp_path,
+        "--vault-path",
+        str(tmp_path / "vault"),
+        "--vault-branch",
+        "drafting",
+    )
+    assert result.returncode == 0, result.stderr
+    assert 'VAULT_BRANCH="drafting"' in read_conf(tmp_path)
+
+
+def test_init_refuses_when_hunt_conf_is_pointed_at_a_missing_file(tmp_path):
+    """An explicit pointer at a missing file is a mistake, not a create request."""
+    result = init_in(
+        tmp_path,
+        "--vault-path",
+        str(tmp_path / "vault"),
+        "--vault-branch",
+        "drafting",
+        conf=tmp_path / "absent.conf",
+    )
+    assert result.returncode == 1
+    assert "absent.conf" in result.stderr
+    assert not (tmp_path / "hunt.conf").exists()
+
+
+def test_init_without_flags_and_without_a_conf_instructs(tmp_path):
+    result = init_in(tmp_path)
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "hunt.conf" in result.stderr
+    assert "--vault-path" in result.stderr
+    assert not (tmp_path / "hunt.conf").exists()
+
+
+def test_init_refuses_when_only_one_key_ends_up_set(tmp_path):
+    conf = empty_conf(tmp_path)
+    result = init_in(tmp_path, "--vault-path", str(tmp_path / "vault"), conf=conf)
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "VAULT_BRANCH" in result.stderr
+    # The value given was still recorded: refusing is not a reason to lose it.
+    assert 'VAULT_PATH="%s"' % (tmp_path / "vault") in conf.read_text()
+    assert not (tmp_path / "vault" / ".git").exists()
+
+
+def test_init_refuses_to_overwrite_a_configured_value_without_yes(vault):
+    before = vault.conf.read_text()
+    result = hunt(vault, "init", "--vault-branch", "other")
+    assert result.returncode == 1
+    assert "refusing to overwrite VAULT_BRANCH" in result.stderr
+    assert "--yes" in result.stderr
+    assert vault.conf.read_text() == before
+
+
+def test_init_overwrites_a_configured_value_with_yes(vault):
+    result = hunt(vault, "init", "--vault-branch", "other", "--yes")
+    assert result.returncode == 0, result.stderr
+    assert 'VAULT_BRANCH="other"' in vault.conf.read_text()
+    assert git(vault, "rev-parse", "--abbrev-ref", "HEAD").strip() == "other"
+
+
+def test_init_repeating_the_configured_value_is_not_an_overwrite(vault):
+    result = hunt(vault, "init", "--vault-branch", vault.branch)
+    assert result.returncode == 0, result.stderr
+    assert 'VAULT_BRANCH="%s"' % vault.branch in vault.conf.read_text()
+
+
+def test_init_warns_and_survives_a_gitignore_that_hides_the_scaffold(vault):
+    vault.write(".gitignore", ".obsidian/\n")
+    commit_all(vault, "hand-rolled gitignore")
+
+    result = hunt(vault, "init")
+    assert result.returncode == 0, result.stderr
+    assert "warning" in result.stderr
+    assert ".obsidian/app.json" in result.stderr
+    # Skipped, not force-added: an ignored path would leave the tree dirty.
+    assert not (vault.path / ".obsidian").exists()
+    assert_clean(vault)
+
+
+# --- environment artifacts (vault-spec 3) ------------------------------------
+
+
+def test_ds_store_anywhere_is_neither_a_finding_nor_a_blocker(vault):
+    assert hunt(vault, "init").returncode == 0
+    assert hunt(vault, "new", "-c", "h").returncode == 0
+    for relative in (".DS_Store", "hunt/.DS_Store", "hunt/HNT-001/Thumbs.db"):
+        (vault.path / relative).write_bytes(b"\x00finder\r\n")
+
+    result = hunt(vault, "validate")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout == ""
+    # validate is read-only: it ignores them, it does not delete them.
+    assert (vault.path / ".DS_Store").exists()
+
+    result = hunt(vault, "new", "-c", "m")
+    assert result.returncode == 0, result.stderr
+    assert "removed" in result.stdout
+    for relative in (".DS_Store", "hunt/.DS_Store", "hunt/HNT-001/Thumbs.db"):
+        assert not (vault.path / relative).exists()
+    assert staged_in_head(vault) == ["math/MTH-001/MTH-001.md"]
+    assert_clean(vault)
+
+
+# --- CRLF never reaches a branch (vault-spec 8) ------------------------------
+
+
+def test_a_card_committed_with_crlf_is_a_finding(vault):
+    assert hunt(vault, "init").returncode == 0
+    assert hunt(vault, "new", "-c", "h").returncode == 0
+
+    # Defeat .gitattributes the only way a repo can: remove it, then commit CR.
+    parent = card(vault, "HNT-001.md")
+    (vault.path / ".gitattributes").unlink()
+    parent.write_bytes(parent.read_bytes().replace(b"\n", b"\r\n"))
+    commit_all(vault, "windows happened")
+
+    result = hunt(vault, "validate")
+    assert result.returncode == 1
+    codes = {m.group("code") for m in map(FINDING_RE.match, result.stdout.splitlines())}
+    assert "bytes.crlf-committed" in codes
+    assert "path.missing-gitattributes" in codes
+
+
+def test_the_tool_refuses_to_commit_a_staged_crlf_card(vault):
+    """Layer 3: hunt itself can never be the thing that records a CRLF card."""
+    assert hunt(vault, "init").returncode == 0
+    assert hunt(vault, "new", "-c", "h").returncode == 0
+    (vault.path / ".gitattributes").unlink()
+    commit_all(vault, "drop the guarantee")
+
+    target = card(vault, "HNT-001.md")
+    target.write_bytes(b"---\r\n")
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import sys; from hunt import vault as v; "
+            "v.commit(sys.argv[1], [sys.argv[2]], 'hunt: bad')",
+            str(vault.path),
+            str(target),
+        ],
+        env={**os.environ, "PYTHONPATH": str(SRC)},
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode != 0
+    assert "CR" in result.stderr or "carriage" in result.stderr
+    # The refusal unstages what it staged, so the index is where it started.
+    assert git(vault, "diff", "--cached", "--name-only") == ""
+
+
+# --- validate: the root-file exemption must not drift ------------------------
+
+
+def test_a_gitignore_inside_a_category_is_still_a_stray_file(vault):
+    assert hunt(vault, "init").returncode == 0
+    assert hunt(vault, "new", "-c", "h").returncode == 0
+    vault.write("hunt/.gitignore", "*\n")
+
+    result = hunt(vault, "validate")
+    assert result.returncode == 1
+    codes = {m.group("code") for m in map(FINDING_RE.match, result.stdout.splitlines())}
+    assert "path.stray-file" in codes
+
+
+def test_a_gitignore_that_hides_a_card_is_a_finding(vault):
+    assert hunt(vault, "init").returncode == 0
+    assert hunt(vault, "new", "-c", "h").returncode == 0
+    vault.write(".gitignore", "HNT-001.md\n")
+    commit_all(vault, "hide a card")
+
+    result = hunt(vault, "validate")
+    assert result.returncode == 1
+    codes = {m.group("code") for m in map(FINDING_RE.match, result.stdout.splitlines())}
+    assert "path.gitignore-hides-card" in codes

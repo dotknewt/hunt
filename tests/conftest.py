@@ -78,7 +78,11 @@ def vault(tmp_path, monkeypatch):
     run_git(path, "config", "user.email", "tests@example.invalid")
     run_git(path, "config", "commit.gpgsign", "false")
     run_git(path, "config", "core.autocrlf", "false")
-    run_git(path, "commit", "-q", "--allow-empty", "-m", "root")
+    # The root commit carries .gitattributes, exactly as `hunt init` does: the
+    # LF guarantee of vault-spec 8 has to be in force before the first card.
+    write_file(path / ".gitattributes", "* text=auto eol=lf\n")
+    run_git(path, "add", "--", ".gitattributes")
+    run_git(path, "commit", "-q", "-m", "root")
     run_git(path, "checkout", "-q", "-b", BRANCH)
     conf = write_file(
         root / "hunt.conf",

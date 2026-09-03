@@ -1,13 +1,23 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from datetime import date
 from pathlib import Path
 
-from . import HuntError, cards, vault
+from . import HuntError, cards, scaffold, vault
 from .cards import CardError
-from .config import CONF_NAME, ConfigUnset, load_config, load_configured
+from .config import (
+    CONF_NAME,
+    ConfigError,
+    ConfigUnset,
+    find_config,
+    load_config,
+    load_configured,
+    require_configured,
+    write_config,
+)
 from .validate import validate_parent_dir, validate_vault
 from .vault import VaultError
 
@@ -82,15 +92,114 @@ def _write(config, path, text):
     return target
 
 
+def _warn(message):
+    print("hunt: warning: %s" % message, file=sys.stderr)
+
+
+def _confirm(question, assume_yes):
+    if assume_yes:
+        return True
+    if not sys.stdin.isatty():
+        # Refusing is the only safe answer: nobody is there to say no, and the
+        # value already in the file was put there on purpose.
+        return False
+    try:
+        answer = input(question)
+    except EOFError:
+        return False
+    return answer.strip().lower() in ("y", "yes")
+
+
+def _locate_config(args):
+    """The hunt.conf `hunt init` will write, and its current contents if any."""
+    try:
+        conf = find_config()
+    except ConfigError as exc:
+        if os.environ.get("HUNT_CONF"):
+            # An explicit pointer at a missing file is a mistake, not a request
+            # to create one somewhere else.
+            raise
+        if args.vault_path is None and args.vault_branch is None:
+            # Nothing to write and nowhere to write it: say what would fix both.
+            raise ConfigError(
+                "%s; or run: hunt init --vault-path <PATH> --vault-branch <NAME>"
+                % exc
+            ) from exc
+        return Path.cwd() / CONF_NAME, None
+    # find_config ascends without stopping at a repository boundary or $HOME
+    # (vault-spec 2), so say which file is about to be written.
+    print("configuration: %s" % conf)
+    return conf, load_config(conf)
+
+
+def _init_values(args, config, conf):
+    """Which keys to write, prompting before replacing a configured value."""
+    requested = (
+        ("VAULT_PATH", args.vault_path, lambda value: str(Path(value).expanduser())),
+        ("VAULT_BRANCH", args.vault_branch, lambda value: value),
+    )
+    values = {}
+    for key, flag, normalize in requested:
+        if flag is None:
+            continue
+        existing = None if config is None else getattr(config, key.lower())
+        if existing is None:
+            values[key] = flag
+            continue
+        if str(existing) == normalize(flag):
+            continue
+        if not _confirm(
+            'overwrite %s "%s" with "%s"? [y/N] ' % (key, existing, flag), args.yes
+        ):
+            raise HuntError(
+                "refusing to overwrite %s in %s; pass --yes to replace it" % (key, conf)
+            )
+        values[key] = flag
+    return values
+
+
+def _sweep(vault_path):
+    """Drop environment artifacts before the clean-tree check (vault-spec 3).
+
+    A .DS_Store Finder wrote while nobody was looking must not be able to stand
+    between the author and a card, and nothing authored it, so nothing is lost.
+    `hunt validate` deliberately does not call this: deleting during a read-only
+    command would be a surprise.
+    """
+    for removed in vault.sweep(vault_path):
+        print("removed %s" % removed)
+
+
 def cmd_init(args, today):
-    config = load_config()
-    vault.init(config.vault_path, config.vault_branch)
+    conf, config = _locate_config(args)
+    values = _init_values(args, config, conf)
+    if config is None:
+        # A new file gets the whole schema, empty where nothing was given, so
+        # that what it holds is a readable configuration either way.
+        values = {"VAULT_PATH": "", "VAULT_BRANCH": "", **values}
+    if values:
+        write_config(conf, values)
+        print("wrote %s to %s" % (", ".join(sorted(values)), conf))
+    config = require_configured(load_config(conf))
+
+    prepare = lambda root: scaffold.scaffold(root, warn=_warn)  # noqa: E731
+    in_root_commit = vault.init(config.vault_path, config.vault_branch, prepare=prepare)
+    _sweep(config.vault_path)
+    created = in_root_commit or scaffold.scaffold(config.vault_path, warn=_warn)
+    if created and not in_root_commit:
+        # The root commit is already written and the tool never commits on main
+        # again (vault-spec 4), so an existing vault gets the scaffold on its
+        # working branch instead.
+        vault.commit(config.vault_path, created, vault.INIT_SUBJECT)
+    for path in created:
+        print("created %s" % path)
     print("initialized %s on %s" % (config.vault_path, config.vault_branch))
     return 0
 
 
 def cmd_new(args, today):
     config = load_configured()
+    _sweep(config.vault_path)
     vault.ensure_writable(config)
     number = cards.next_parent_number(config.vault_path, args.category)
     parent_id = cards.parent_id(args.category, number)
@@ -108,6 +217,7 @@ def cmd_new(args, today):
 
 def cmd_run(args, today):
     config = load_configured()
+    _sweep(config.vault_path)
     vault.ensure_writable(config)
     parent_path, parent = cards.load_parent(config.vault_path, args.id)
     if parent.status == cards.STATUS_RETIRED:
@@ -211,6 +321,17 @@ def build_parser():
     subparsers = parser.add_subparsers(dest="command", metavar="<command>", required=True)
 
     init = subparsers.add_parser("init", help="initialize the vault repository and branch")
+    init.add_argument(
+        "--vault-path", metavar="<PATH>", help="set VAULT_PATH in %s" % CONF_NAME
+    )
+    init.add_argument(
+        "--vault-branch", metavar="<NAME>", help="set VAULT_BRANCH in %s" % CONF_NAME
+    )
+    init.add_argument(
+        "--yes",
+        action="store_true",
+        help="replace a configured value without asking (required when not a terminal)",
+    )
     init.set_defaults(func=cmd_init)
 
     new = subparsers.add_parser("new", help="create a parent card")

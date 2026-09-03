@@ -8,6 +8,8 @@ from pathlib import Path
 from . import HuntError
 
 CONF_NAME = "hunt.conf"
+USER_CONF = Path("~") / ".config" / "hunt" / CONF_NAME
+"""vault-spec 2 step 2: the one well-known location, checked before the walk up."""
 
 _KEYS = ("VAULT_PATH", "VAULT_BRANCH")
 # vault-spec 1.1: KEY="value", the key in SCREAMING_SNAKE_CASE. Anything
@@ -58,13 +60,28 @@ class Config:
         return tuple(key for key, value in pairs if value is None)
 
 
+def user_config() -> Path:
+    """The per-user configuration path, with ~ expanded against the live $HOME."""
+    return Path(USER_CONF).expanduser()
+
+
 def find_config(start: Path | None = None) -> Path:
+    """Resolve the hunt.conf to use, stopping at the first step that yields one.
+
+    vault-spec 2: HUNT_CONF, then ~/.config/hunt/hunt.conf, then the nearest
+    hunt.conf at or above the working directory. The per-user file outranks the
+    checkout so that one machine-local answer can serve every clone; a checkout
+    that wants its own says so by carrying a hunt.conf only when it means it.
+    """
     override = os.environ.get("HUNT_CONF")
     if override:
         path = Path(override).expanduser()
         if not path.is_file():
             raise ConfigError(f"HUNT_CONF is set to {path}, which is not a file")
         return path
+    user = user_config()
+    if user.is_file():
+        return user
     here = (start if start is not None else Path.cwd()).expanduser()
     here = here.resolve()
     if here.is_file():
@@ -74,7 +91,7 @@ def find_config(start: Path | None = None) -> Path:
         if candidate.is_file():
             return candidate
     raise ConfigError(
-        f"no {CONF_NAME} found in {here} or any parent directory; "
+        f"no {CONF_NAME} found at {user}, in {here}, or in any parent directory; "
         f"create one there or set HUNT_CONF"
     )
 

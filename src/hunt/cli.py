@@ -135,8 +135,9 @@ def _locate_config(args):
                 % exc
             ) from exc
         return Path.cwd() / CONF_NAME, None
-    # find_config ascends without stopping at a repository boundary or $HOME
-    # (vault-spec 2), so say which file is about to be written.
+    # The file may be the per-user one, or any ancestor's: find_config ascends
+    # without stopping at a repository boundary or $HOME (vault-spec 2), so say
+    # which file is about to be written.
     print("configuration: %s" % conf)
     return conf, load_config(conf)
 

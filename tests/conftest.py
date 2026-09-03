@@ -61,6 +61,11 @@ class Vault:
 def clean_env(monkeypatch, tmp_path_factory):
     home = tmp_path_factory.mktemp("githome")
     monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(home / "gitconfig"))
+    # find_config consults ~/.config/hunt/hunt.conf before it walks up (vault-spec
+    # 2), so a real one on the developer's machine would answer for every test
+    # that expects the walk. Point $HOME at an empty directory instead.
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.delenv("USERPROFILE", raising=False)
     for key, value in GIT_ENV.items():
         monkeypatch.setenv(key, value)
     for key in ("HUNT_CONF", "GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"):

@@ -133,17 +133,31 @@ first step that yields a candidate:
    value is resolved against `$PWD`. This step does not walk up. If the named
    file does not exist, is not a regular file, or is not readable, that is an
    error; the tool MUST NOT fall through to step 2.
-2. **Nearest `hunt.conf`.** Otherwise, starting at `$PWD` and ascending one
+2. **Per-user `hunt.conf`.** Otherwise, if `~/.config/hunt/hunt.conf` is a
+   readable regular file, it provides the configuration. `~` is the invoking
+   user's home directory as the platform reports it. Anything else at that
+   path -- a directory, a dangling symlink, an unreadable file -- is not a
+   candidate, and resolution continues at step 3.
+3. **Nearest `hunt.conf`.** Otherwise, starting at `$PWD` and ascending one
    directory at a time to the filesystem root, the first directory containing
    a readable regular file named `hunt.conf` provides it. The ascent is not
    stopped by a repository boundary, a mount point, or a home directory.
-3. **Error.** Otherwise the tool MUST report that no configuration was found,
-   and MUST NOT write anything.
+4. **Error.** Otherwise the tool MUST report that no configuration was found,
+   and MUST NOT write anything. The message MUST name both the per-user path
+   and the directory the ascent started from.
 
-There is **no user-global fallback**. `~/.hunt.conf`, `~/.config/hunt/`,
-`/etc/hunt.conf`, and any other well-known location MUST NOT be consulted.
-Configuration is per-checkout and explicit; a tool invoked from an unexpected
-directory MUST fail rather than silently operate on some other vault.
+`~/.config/hunt/hunt.conf` is the **only** well-known location. `~/.hunt.conf`,
+`~/.hunt/`, `/etc/hunt.conf`, and every other conventional path MUST NOT be
+consulted, and no directory other than `~/.config/hunt/` is searched for one.
+The path is literal: `$XDG_CONFIG_HOME` MUST NOT be honoured, so a user who has
+moved their configuration root MUST point `HUNT_CONF` at the file instead.
+
+The per-user file deliberately outranks the ascent: one machine-local answer
+serves every checkout, and a checkout that has been configured on purpose says
+so through `HUNT_CONF`. A `hunt.conf` tracked in a repository is therefore a
+default, not an override -- it answers only for a user who has not configured
+one, which is what lets a repository ship an unconfigured file (Section 1.2)
+without it shadowing a working setup.
 
 The directory containing `hunt.conf` carries no meaning beyond having been
 found: `VAULT_PATH` is absolute, so nothing is resolved relative to it.

@@ -82,6 +82,85 @@ def test_hunt_conf_env_naming_a_missing_file_is_an_error(tmp_path, monkeypatch):
         load_config()
 
 
+def test_user_conf_is_used_when_nothing_else_is_found(tmp_path, monkeypatch):
+    """vault-spec 2 step 2: ~/.config/hunt/hunt.conf serves a directory that has
+    no hunt.conf of its own anywhere above it."""
+    root = tmp_path.resolve()
+    home = root / "home"
+    conf_at(home / ".config" / "hunt", 'VAULT_PATH="/srv/user"\nVAULT_BRANCH="user"\n')
+    elsewhere = root / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+    monkeypatch.setenv("HOME", str(home))
+    config = load_config()
+    assert config.vault_path == Path("/srv/user")
+    assert config.vault_branch == "user"
+
+
+def test_user_conf_outranks_the_walk_up(tmp_path, monkeypatch):
+    """The per-user file is step 2 and the ascent is step 3, so a hunt.conf in
+    the checkout does not shadow it."""
+    root = tmp_path.resolve()
+    home = root / "home"
+    conf_at(home / ".config" / "hunt", 'VAULT_PATH="/srv/user"\nVAULT_BRANCH="user"\n')
+    repo = root / "repo"
+    conf_at(repo, 'VAULT_PATH="/srv/repo"\nVAULT_BRANCH="repo"\n')
+    monkeypatch.chdir(repo)
+    monkeypatch.setenv("HOME", str(home))
+    assert load_config().vault_branch == "user"
+
+
+def test_hunt_conf_env_outranks_the_user_conf(tmp_path, monkeypatch):
+    root = tmp_path.resolve()
+    home = root / "home"
+    conf_at(home / ".config" / "hunt", 'VAULT_PATH="/srv/user"\nVAULT_BRANCH="user"\n')
+    chosen = conf_at(root / "elsewhere", 'VAULT_PATH="/srv/chosen"\nVAULT_BRANCH="chosen"\n')
+    monkeypatch.chdir(root)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("HUNT_CONF", str(chosen))
+    assert load_config().vault_branch == "chosen"
+
+
+def test_hunt_conf_env_at_a_missing_file_does_not_fall_back_to_the_user_conf(
+    tmp_path, monkeypatch
+):
+    """vault-spec 2 step 1: an explicit pointer at a missing file is an error,
+    never a request to look somewhere else."""
+    root = tmp_path.resolve()
+    home = root / "home"
+    conf_at(home / ".config" / "hunt", 'VAULT_PATH="/srv/user"\nVAULT_BRANCH="user"\n')
+    monkeypatch.chdir(root)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("HUNT_CONF", str(root / "absent.conf"))
+    with pytest.raises(HuntError, match="absent.conf"):
+        load_config()
+
+
+def test_a_user_conf_directory_is_not_a_config(tmp_path, monkeypatch):
+    """Only a regular file answers; a stray directory at that path must not
+    shadow the checkout's hunt.conf."""
+    root = tmp_path.resolve()
+    home = root / "home"
+    (home / ".config" / "hunt" / "hunt.conf").mkdir(parents=True)
+    repo = root / "repo"
+    conf_at(repo, 'VAULT_PATH="/srv/repo"\nVAULT_BRANCH="repo"\n')
+    monkeypatch.chdir(repo)
+    monkeypatch.setenv("HOME", str(home))
+    assert load_config().vault_branch == "repo"
+
+
+def test_no_conf_anywhere_names_the_user_conf_it_looked_for(tmp_path, monkeypatch):
+    root = tmp_path.resolve()
+    home = root / "home"
+    home.mkdir()
+    deep = root / "a" / "b"
+    deep.mkdir(parents=True)
+    monkeypatch.chdir(deep)
+    monkeypatch.setenv("HOME", str(home))
+    with pytest.raises(HuntError, match=r"\.config/hunt/hunt\.conf"):
+        load_config()
+
+
 def test_walk_up_finds_an_ancestor_conf(tmp_path, monkeypatch):
     root = tmp_path.resolve()
     conf_at(root, GOOD)

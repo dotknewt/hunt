@@ -27,8 +27,11 @@ uv run pytest
 
 ## Configure
 
-`hunt` reads `hunt.conf` from the current directory or the nearest ancestor
-that has one (`HUNT_CONF` overrides the search):
+`hunt` looks for `hunt.conf` in three places and takes the first that has one:
+`$HUNT_CONF`, then `~/.config/hunt/hunt.conf`, then the current directory or the
+nearest ancestor that has one. Configuring yourself once at
+`~/.config/hunt/hunt.conf` covers every checkout, and keeps your values out of a
+repository that tracks the file:
 
 ```
 VAULT_PATH="/absolute/path/to/vault"

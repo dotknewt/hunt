@@ -1,17 +1,26 @@
 # Recurring Task-Card Schema (Obsidian, plain-text Markdown)
 
-**Version:** 3
+**Version:** 4
 **Status:** normative schema and validation contract.
 **Scope:** card format, cross-file invariants, and the rules a validator MUST
-enforce. Where the vault lives, how it is configured, and how its Git branches
-are used are specified in `docs/vault-spec.md`. Tool implementation, CI wiring,
-and a stats layer are not specified here; their *absence* does not weaken any
-rule below. Every rule below is enforceable today by manual inspection and MUST
-be enforced by code once a validator exists.
-**Changelog:** v3 makes card files ASCII only, adds `open` to the run status
-enum, removes `run_number` from frontmatter, pins file conventions (Section
-3.1) and the parent's managed region (Section 5.2), and rebases number
-allocation on the working tree (Section 2.2).
+enforce, over a tree of card files rooted at a *card root*. Where that root
+lives, how it is configured, what else may sit beside the card tree inside it,
+and how any of it is version-controlled are out of scope: this document names
+no path outside the card tree and no version-control system. Tool
+implementation, CI wiring, and a stats layer are not specified here; their
+*absence* does not weaken any rule below. Every rule below is enforceable today
+by manual inspection and MUST be enforced by code once a validator exists.
+**Changelog:** v4 makes this document self-contained. The rules that governed
+the card root's non-card contents, the configuration file, the editor's state
+directory, and Git branches moved out to the document that owns the root; a
+contradiction between the two documents over which files may sit at the root is
+resolved by that move. The history invariants (Section 7) and transition
+validation (Section 8.2) are restated over an *accepted tree* and a *proposed
+tree* (Section 1) rather than over a branch named `main`; their substance is
+unchanged. v3 made card files ASCII only, added `open` to the run status enum,
+removed `run_number` from frontmatter, pinned file conventions (Section 3.1) and
+the parent's managed region (Section 5.2), and rebased number allocation on the
+working tree (Section 2.2).
 
 Keywords **MUST**, **MUST NOT**, **SHOULD**, **SHOULD NOT**, **MAY** are
 normative (RFC 2119 sense).
@@ -23,18 +32,22 @@ normative (RFC 2119 sense).
 - Every task is **recurring**.
 - A **parent** (task-card) has zero or more **runs** (run-cards); each run is a
   single execution. A parent that has no run files yet is a legal state.
-- The vault location is defined in `hunt.conf` (see `docs/vault-spec.md`). The
-  vault is a Git repository whose root is simultaneously the Obsidian vault
-  root and the card root of Section 3.
-- External notes and attachments are out of scope. Nothing but card files and
-  Obsidian's own `.obsidian/` state lives in the vault, so every link this spec
+- Cards live in a tree under a **card root** (Section 3). Where that root is
+  and how a reader finds it are out of scope; no rule here depends on its path
+  or its name.
+- External notes and attachments are out of scope, so every link this document
   constrains is a link between card files.
-- **`main` is the record.** All immutability and numbering rules apply to
-  `main`. On a branch, files are drafts and MAY be freely edited, renamed,
-  deleted, or renumbered.
-- Two validation modes exist (Section 8): **snapshot validation** (is this
-  tree internally consistent?) and **main-transition validation** (is this
-  change to `main` legal given the preceding `main` tree?).
+- **Accepted and proposed trees.** A card tree is in one of two roles at any
+  moment. The **accepted tree** is the record: it is what has been reviewed and
+  taken as final, and every immutability and numbering rule below is a
+  statement about it. A **proposed tree** is a candidate to replace the
+  accepted tree; within it files are drafts and MAY be freely edited, renamed,
+  deleted, or renumbered. Which tree holds which role, and by what mechanism a
+  proposed tree becomes the accepted one, are out of scope; the document that
+  owns the card root supplies that binding.
+- Two validation modes exist (Section 8): **snapshot validation** (is this tree
+  internally consistent?) and **transition validation** (is this proposed tree
+  legal given the accepted tree it would replace?).
 
 ---
 
@@ -68,28 +81,30 @@ RUN_ID      := PARENT_ID "." DIGIT3
   full ID: no `.md` suffix, no bracket characters inside the value, no
   aliases (`[[BSL-001|Baseline 1]]` is forbidden anywhere in a card file),
   no bare run numbers (`001`, `[[001]]`).
-- A filename stem is globally unique across the vault. This is **derived**,
-  not a second scan: the ID grammar, the one-index-per-parent-directory rule,
-  and the no-other-Markdown rule of Section 3 already force it. Uniqueness is
-  **case-insensitive**: two stems differing only in case (`BSL-001` and
-  `bsl-001`) are the same stem, and on a case-insensitive filesystem the same
-  file. A tree containing both is invalid even where the filesystem can hold
-  both.
+- A filename stem is globally unique across the card root. This is
+  **derived**, not a second scan: the ID grammar, the rule of one index per
+  parent directory, and the no-other-Markdown rule of Section 3 already force
+  it. Uniqueness is **case-insensitive**: two stems differing only in case
+  (`BSL-001` and `bsl-001`) are the same stem, and on a case-insensitive
+  filesystem the same file. A tree containing both is invalid even where the
+  filesystem can hold both.
 
 ### 2.2 Numbering
 
 - Parent numbers, per category, and run numbers, per parent, MUST be
   **contiguous positive integers starting at 1**, zero-padded to 3 digits.
-- **Precondition.** Before any number is allocated, the working branch MUST
-  contain `main`: `main` MUST be an ancestor of the working branch's tip.
-  Allocating without having established this is forbidden; a tool that cannot
-  establish it MUST refuse to allocate rather than guess.
-- Given that precondition, and given that no card file on `main` is ever
-  deleted, renamed, or renumbered (Section 7), every number ever assigned on
-  `main` is present in the working tree. The next number to assign is
-  therefore **(greatest number present in the working tree) + 1**, determined
-  by scanning the working tree alone. There is no history lookup and no Git
-  query:
+- **Precondition.** Numbers are allocated in a proposed tree, and only once it
+  has been established that the proposed tree already contains every number
+  present in the accepted tree. Allocating without having established this is
+  forbidden; a tool that cannot establish it MUST refuse to allocate rather
+  than guess. How it is established follows from whatever mechanism relates the
+  two trees, and is out of scope here.
+- Given that precondition, and given that no card file in the accepted tree is
+  ever deleted, renamed, or renumbered (Section 7), every number ever assigned
+  is present in the proposed tree. The next number to assign is therefore
+  **(greatest number present in that tree) + 1**, determined by scanning that
+  one tree alone. Nothing outside it is consulted - no history, no index, no
+  other tree:
   - the next parent number for a category is derived from the parent
     directories present in that category directory;
   - the next run number for a parent is derived from the run files present in
@@ -99,9 +114,10 @@ RUN_ID      := PARENT_ID "." DIGIT3
   A request that would allocate number 1000 MUST be reported as an explicit
   error. It MUST NOT wrap, silently widen the padding, or reuse a number.
   Widening the padding is a spec revision, out of scope here.
-- Numbers are allocated per working tree. Two branches that each allocate
-  without having merged the other's work will collide; resolving such a
-  collision at merge time is out of scope for this spec.
+- Numbers are allocated per tree. Two proposed trees that each allocate
+  without having incorporated the other's work will collide; detecting and
+  resolving such a collision when they are reconciled is out of scope for this
+  spec.
 
 ---
 
@@ -128,28 +144,33 @@ task-cards/
 
 **Path rules (MUST):**
 
-- `task-cards/` above stands for the vault root, whose absolute path comes
-  from `hunt.conf`. It MAY be relocated; no rule depends on its absolute path
-  or on its directory name.
+- `task-cards/` above stands for the **card root**. It MAY be relocated; no
+  rule depends on its absolute path or on its directory name.
 - `<category-dir>` MUST be the exact directory from the Section 2.1 table.
 - A parent directory is named exactly `<PARENT-ID>` and MUST live directly
   under its category directory.
 - A parent directory MUST contain exactly one file `<PARENT-ID>.md` (the
   index) and zero or more files `<PARENT-ID>.<NNN>.md` (runs).
-- No other Markdown file may exist under the vault root: every card file is
+- No other Markdown file may exist under the card root: every card file is
   either that directory's index or a run belonging to that directory's
   parent.
-- No non-Markdown file may exist under the vault root either, except inside
-  `.obsidian/` (Obsidian's own state) and `.git/` (Git's own state), plus a
-  single `.gitignore` at the vault root. That one file is permitted because
-  the clean-work-tree precondition (`docs/vault-spec.md` Section 5) is
-  otherwise unsatisfiable on a filesystem that writes stray metadata such as
-  `.DS_Store` into every directory. It MUST NOT ignore any card file. This
-  forbids attachments, templates, tooling assets, and editor or operating
-  system artifacts such as `.DS_Store` and `Thumbs.db`.
+- A category directory MUST contain nothing but parent directories, and a
+  parent directory nothing but the card files above. Nothing else - not an
+  attachment, not a template, not a tooling asset - may exist at either level.
+- The card root MAY hold entries other than the category directories. What
+  those are, and whether any are permitted at all, is out of scope here; the
+  document that owns the card root enumerates them. This document constrains
+  the category directories and their contents, plus the no-other-Markdown rule
+  above, and nothing else about the root.
+- The document that owns the card root MAY additionally exempt a closed, named
+  set of *environment artifacts* - files written by an editor, a filesystem, or
+  a version-control system rather than by an author - from the two rules above,
+  wherever in the tree they appear. Such an exemption is a statement about that
+  environment, not a relaxation of this document: a validator MUST treat every
+  entry outside the exempted set as a violation, and no exemption may name a
+  Markdown file.
 - Only the final `.md` is a file extension; the `.` inside a run ID
   (`BSL-001.002`) is the parent/run separator, not part of the extension.
-- Templates and any tooling assets MUST NOT live under the vault root.
 
 ### 3.1 File Conventions
 
@@ -249,13 +270,14 @@ number among that parent's run files, **regardless of that run's `status`** (an
 unambiguous rule; consumers wanting only completed runs filter on `status`
 themselves. A consequence, stated here so no reader has to discover it: when
 the latest run is voided, the parent goes on transcluding a `void` run's
-Outcome, and invariant 9 forbids editing the merged parent to point elsewhere.
+Outcome, and invariant 9 forbids editing the accepted parent to point
+elsewhere.
 That is intended. The remedy is a new run, not a correction.
 
 **Retirement freeze:** when `status` is `retired`, `latest_run` and
 `latest_run_date` MUST NOT change further - they remain at the values from
-the moment of retirement. `retired` is terminal: a retired parent MUST NOT
-be reactivated to `active` on `main`.
+the moment of retirement. `retired` is terminal: once accepted, a retired
+parent MUST NOT be reactivated to `active`.
 
 **Retirement stops new runs:** a parent with `status: retired` MUST NOT
 gain additional run files. Retirement does not alter existing run history,
@@ -364,17 +386,16 @@ finished before the next is started. Creating a second run while one is still
 
 **No forward pointer.** Run frontmatter deliberately has no `next_run`
 field. A forward pointer on run *N* would have to be written when run
-*N+1* is created - after run *N* is already merged to `main` - which is
-exactly the kind of post-merge field mutation Section 7 (invariant 9)
-forbids. Forward traversal (oldest to newest) is done by sorting a parent's
-runs by run number, not by chain-walking; that sort is cheap and requires
-no mutation of merged files.
+*N+1* is created - after run *N* has already been accepted - which is exactly
+the kind of field mutation Section 7 (invariant 9) forbids. Forward traversal
+(oldest to newest) is done by sorting a parent's runs by run number, not by
+chain-walking; that sort is cheap and requires no mutation of accepted files.
 
-**Void runs:** a run that reached `main` in error MUST NOT be deleted,
-renamed, or renumbered. Instead, on `main`, exactly one field MAY change
-after merge: `status`, advancing along the chain above. No other field
-(`id`, `parent`, `run_date`, `previous_run`) may ever change post-merge, and
-the file's number, being its filename, cannot change at all. The run's
+**Void runs:** a run that was accepted in error MUST NOT be deleted, renamed,
+or renumbered. Instead, exactly one field MAY change once the run has been
+accepted: `status`, advancing along the chain above. No other field (`id`,
+`parent`, `run_date`, `previous_run`) may ever change thereafter, and the
+file's number, being its filename, cannot change at all. The run's
 `## Outcome` body text MAY receive an appended explanation but the heading and
 prior content MUST NOT be altered or removed. A `void` run remains part of the
 `previous_run` chain and remains eligible to be `latest_run` (Section 5.1).
@@ -402,12 +423,13 @@ Previous: [[BSL-001.001]]
 
 ---
 
-## 7. Cross-File and Repository Invariants
+## 7. Cross-File and Transition Invariants
 
-Invariants 1-5 MUST hold for every parent directory on `main`; invariant 6 is
-vault-wide, as is the filename-uniqueness rule of Section 2.1 that it depends
-on. Invariants 7-10 are properties of `main`'s history rather than of any one
-tree (Section 8.2):
+Invariants 1-5 MUST hold for every parent directory of the accepted tree;
+invariant 6 is tree-wide, as is the filename-uniqueness rule of Section 2.1
+that it depends on. Invariants 7-10 relate a proposed tree to the accepted tree
+it would replace rather than describing any one tree, and so are checkable only
+in transition validation (Section 8.2):
 
 1. **Chain integrity.** Sort the parent's run files by their filename-derived
    run number ascending. Run `001` has no `previous_run`. Every other run's
@@ -437,20 +459,20 @@ tree (Section 8.2):
    target run files as specified in Sections 5 and 6; that is not a violation
    of this rule.
 
-**Repository history invariants (main-transition only, not visible in a
-single-tree snapshot):**
+**Transition invariants (not visible in a single-tree snapshot).** Below,
+*accepted* qualifies a number or a card file present in the accepted tree, and
+each invariant constrains what the proposed tree that would replace it may do:
 
-7. No parent or run number, once it has existed on `main`, is ever reused
-   for a different card.
-8. No card file, once merged to `main`, is ever deleted, renamed, or moved.
-9. On `main`, no field of a merged run changes except `status`, advancing one
+7. No parent or run number, once accepted, is ever reused for a different card.
+8. No accepted card file is ever deleted, renamed, or moved.
+9. No field of an accepted run card changes, except `status`, advancing one
    step at a time along `open -> complete -> void` (Section 6.1), plus an
-   appended (not replacing) addition under `## Outcome`. No field of a merged
-   parent changes except `status` (`active -> retired`, one-way) and, only up
-   to the moment of retirement, `latest_run`/`latest_run_date` advancing to a
-   newly added run. The parent's managed body sections (Section 5.2) change
-   only as a consequence of a run file being added.
-10. `retired` never reverts to `active` on `main`.
+   appended (not replacing) addition under `## Outcome`. No field of an
+   accepted parent card changes, except `status` (`active -> retired`, one-way)
+   and, only up to the moment of retirement, `latest_run`/`latest_run_date`
+   advancing to a newly added run. The parent's managed body sections (Section
+   5.2) change only as a consequence of a run file being added.
+10. `retired` never reverts to `active`.
 
 ---
 
@@ -460,8 +482,8 @@ A conforming validator MUST implement two modes:
 
 ### 8.1 Snapshot validation
 
-Given the current vault tree, check Sections 3-6 and invariants 1-6 of
-Section 7. This requires no Git history - only the files currently present.
+Given a single card tree, check Sections 3-6 and invariants 1-6 of Section 7.
+This requires nothing but the files that tree currently holds.
 Sections 5.2 and 6.2 are checked by parsing each card, re-rendering it
 from its user region plus the run files present, and comparing bytes. Section
 3.1 MUST be checked directly over the whole file, independently of that
@@ -469,12 +491,12 @@ comparison: the user region is copied verbatim into the re-render, so a CRLF,
 a non-ASCII byte or a missing trailing newline inside it would appear in both
 sides of the comparison and survive it.
 
-### 8.2 Main-transition validation
+### 8.2 Transition validation
 
-Given a proposed change (a merge/commit) and the preceding state of `main`,
-additionally check invariants 7-10 of Section 7: nothing was deleted,
-renamed, moved, renumbered, or reused, and merged-run/merged-parent field
-mutations are limited to the permitted one-way transitions.
+Given a proposed tree and the accepted tree it would replace, additionally
+check invariants 7-10 of Section 7: nothing accepted was deleted, renamed,
+moved, renumbered, or reused, and changes to accepted run and parent cards are
+limited to the permitted one-way transitions.
 
 Both modes are validation contracts required by this spec regardless of
 whether an automated validator currently exists; until one exists, both are

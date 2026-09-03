@@ -728,3 +728,40 @@ def test_a_gitignore_that_hides_a_card_is_a_finding(vault):
     assert result.returncode == 1
     codes = {m.group("code") for m in map(FINDING_RE.match, result.stdout.splitlines())}
     assert "path.gitignore-hides-card" in codes
+
+
+# --- run scope ---------------------------------------------------------------
+
+
+def test_run_records_a_scope_when_given(vault):
+    assert hunt(vault, "init").returncode == 0
+    assert hunt(vault, "new", "-c", "h", "--name", NAME).returncode == 0
+    result = hunt(
+        vault, "run", "--id", "HNT-001", "--date", DATE1, "--scope", "windows servers"
+    )
+    assert result.returncode == 0, result.stderr
+
+    front, _ = split_card(card(vault, "HNT-001.001.md").read_text())
+    assert front[-1] == 'scope: "windows servers"', "scope is the last key"
+    assert hunt(vault, "validate").returncode == 0
+    assert_clean(vault)
+
+
+def test_run_omits_scope_when_not_given(vault):
+    assert hunt(vault, "init").returncode == 0
+    assert hunt(vault, "new", "-c", "h", "--name", NAME).returncode == 0
+    assert hunt(vault, "run", "--id", "HNT-001", "--date", DATE1).returncode == 0
+
+    front, _ = split_card(card(vault, "HNT-001.001.md").read_text())
+    assert not [line for line in front if line.startswith("scope")]
+    assert hunt(vault, "validate").returncode == 0
+
+
+@pytest.mark.parametrize("scope", ["", " windows", 'say "windows"', "back\\slash"])
+def test_run_rejects_a_malformed_scope(vault, scope):
+    assert hunt(vault, "init").returncode == 0
+    assert hunt(vault, "new", "-c", "h", "--name", NAME).returncode == 0
+    result = hunt(vault, "run", "--id", "HNT-001", "--date", DATE1, "--scope", scope)
+    assert result.returncode == 2
+    assert "invalid scope" in result.stderr
+    assert not card(vault, "HNT-001.001.md").exists()

@@ -27,7 +27,7 @@ RUN_STATUSES = (STATUS_OPEN, STATUS_COMPLETE, STATUS_VOID)
 
 PARENT_KEYS = ("id", "category", "tags", "status", "latest_run", "latest_run_date")
 PARENT_REQUIRED_KEYS = ("id", "category", "tags", "status")
-RUN_KEYS = ("id", "parent", "run_date", "previous_run", "status")
+RUN_KEYS = ("id", "parent", "run_date", "previous_run", "status", "scope")
 RUN_REQUIRED_KEYS = ("id", "parent", "run_date", "status")
 FORBIDDEN_KEYS = ("run_number",)
 
@@ -43,6 +43,10 @@ RUN_RE = re.compile(
     rf"(?P<parent>(?:{_CODES})-[0-9]{{3}})\.(?P<number>[0-9]{{3}})"
 )
 TAG_RE = re.compile(r"[a-z0-9][a-z0-9_-]*")
+# card-spec 4: scope is free text. The grammar below is hygiene, not a value
+# set: printable ASCII, no quote or backslash, so the renderer can emit the
+# value inside double quotes with no escaping and re-read it byte for byte.
+SCOPE_RE = re.compile(r'[ -!#-\[\]-~]+')
 DATE_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 
 _FENCE = "---\n"
@@ -133,6 +137,17 @@ class Run:
     def status(self):
         return _string(self.frontmatter, "status")
 
+    @property
+    def scope(self):
+        if "scope" not in self.frontmatter:
+            return None
+        value = self.frontmatter["scope"]
+        if not isinstance(value, str):
+            raise CardError("scope must be a string", "FM-BAD-TYPE")
+        if not is_valid_scope(value):
+            raise CardError(f"{value!r} is not a valid scope", "FM-BAD-SCOPE")
+        return value
+
 
 def _string(frontmatter, key):
     if key not in frontmatter:
@@ -172,6 +187,12 @@ def _fields(card, keys):
 
 def is_valid_tag(value):
     return isinstance(value, str) and TAG_RE.fullmatch(value) is not None
+
+
+def is_valid_scope(value):
+    if not isinstance(value, str) or value != value.strip():
+        return False
+    return SCOPE_RE.fullmatch(value) is not None
 
 
 def is_valid_date(value):
@@ -429,10 +450,12 @@ def new_parent(parent, name, tags=(), why=""):
     return Parent(frontmatter, name, why, "")
 
 
-def new_run(run, run_date, previous_run=None):
+def new_run(run, run_date, previous_run=None, scope=None):
     ident = parse_run_id(run)
     if not is_valid_date(run_date):
         raise CardError(f"{run_date!r} is not a YYYY-MM-DD date", "FM-BAD-DATE")
+    if scope is not None and not is_valid_scope(scope):
+        raise CardError(f"{scope!r} is not a valid scope", "FM-BAD-SCOPE")
     frontmatter = {"id": run, "parent": ident.parent, "run_date": run_date}
     if ident.number == 1:
         if previous_run is not None:
@@ -443,6 +466,8 @@ def new_run(run, run_date, previous_run=None):
         parse_run_id(previous_run)
         frontmatter["previous_run"] = previous_run
     frontmatter["status"] = STATUS_OPEN
+    if scope is not None:
+        frontmatter["scope"] = scope
     return Run(frontmatter, "", "")
 
 
@@ -555,6 +580,7 @@ def parse_run(text):
     frontmatter = _load_frontmatter(block)
     card = Run(frontmatter)
     _fields(card, RUN_REQUIRED_KEYS)
+    card.scope  # optional, but a present value must still be well formed
     lines = body.split("\n")
     start = _first_content(lines)
     part_of = f"Part of: [[{card.parent}]]"
@@ -656,6 +682,9 @@ def render_run(run):
     if previous is not None:
         keys.append(f"previous_run: {previous}")
     keys.append(f"status: {run.status}")
+    scope = run.scope
+    if scope is not None:
+        keys.append(f'scope: "{scope}"')
     text = _frontmatter(keys)
     text += f"\nPart of: [[{run.parent}]]\n"
     if previous is not None:

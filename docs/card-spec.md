@@ -1,6 +1,6 @@
 # Recurring Task-Card Schema (Obsidian, plain-text Markdown)
 
-**Version:** 4
+**Version:** 5
 **Status:** normative schema and validation contract.
 **Scope:** card format, cross-file invariants, and the rules a validator MUST
 enforce, over a tree of card files rooted at a *card root*. Where that root
@@ -10,8 +10,14 @@ no path outside the card tree and no version-control system. Tool
 implementation, CI wiring, and a stats layer are not specified here; their
 *absence* does not weaken any rule below. Every rule below is enforceable today
 by manual inspection and MUST be enforced by code once a validator exists.
-**Changelog:** v4 makes this document self-contained. The rules that governed
-the card root's non-card contents, the configuration file, the editor's state
+**Changelog:** v5 adds the optional run-card field `scope` (Sections 4 and
+6.1): free text naming what a run covered, such as `windows` or `on-prem`. Its
+value set is deliberately not defined and MUST NOT be enforced; a validator
+checks only that a present value is well formed. Because the field is optional
+and new, every card written against v4 is still valid under v5. Tags are
+unchanged: they remain a parent-card field.
+v4 makes this document self-contained. The rules that governed the card
+root's non-card contents, the configuration file, the editor's state
 directory, and Git branches moved out to the document that owns the root; a
 contradiction between the two documents over which files may sit at the root is
 resolved by that move. The history invariants (Section 7) and transition
@@ -219,6 +225,7 @@ rendered and byte-compared (Section 8.1).
 | `status` (run) | string enum | `open` \| `complete` \| `void` |
 | `run_date`, `latest_run_date` | quoted string | `"YYYY-MM-DD"`, a valid Gregorian date; quoted to avoid YAML date-type coercion |
 | `latest_run`, `previous_run` | string | bare `RUN_ID`, no `.md` |
+| `scope` | quoted string | a single non-empty line; printable ASCII per Section 3.1; no leading or trailing space; MUST NOT contain `"` or `\`; quoted so that a value YAML would otherwise coerce stays a string. **No value set is defined and none MUST be enforced** |
 
 One body value is constrained here because tooling must reproduce it exactly:
 
@@ -365,13 +372,30 @@ parent: BSL-001
 run_date: "2026-08-31"
 previous_run: BSL-001.001   # REQUIRED unless the run number is 1
 status: open
+scope: "windows servers"    # OPTIONAL
 ---
 ```
 
 `id`, `parent`, `run_date`, and `status` are REQUIRED, in that order.
 `previous_run` is conditional: it MUST be present, between `run_date` and
 `status`, for every run except run `001`, and MUST be absent for run `001`.
+`scope` is OPTIONAL and, when present, MUST be the last key, after `status`.
 `run_number` MUST NOT appear (Section 4).
+
+**`scope` is free text, and its values are not a closed set.** It records what
+this run covered - `"windows"`, `"servers"`, `"clients"`, `"on-prem"`,
+`"firewalls"`, or any phrase the hunter finds useful. A validator MUST check
+the *shape* given in Section 4 and MUST NOT check the value against any list,
+vocabulary, or registry: no such list exists, and this document defines none.
+Two runs of the same parent MAY carry unrelated scopes, or none at all; nothing
+elsewhere in this document derives from, aggregates, or cross-checks the field.
+A parent card has no `scope`, and scope is not a tag: `tags` remains a
+parent-card field (Section 5.1) and gains no run-card counterpart here.
+
+Being an ordinary run field, `scope` falls under invariant 9 of Section 7: once
+a run has been accepted, its `scope` MUST NOT be added, changed, or removed.
+The remedy for a run recorded with the wrong scope is the remedy for any other
+mistaken run - a new run, not a correction.
 
 **Status lifecycle.** A run is created with `status: open`, meaning the
 execution is underway and its `## Outcome` is not yet written. Status advances

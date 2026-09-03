@@ -242,3 +242,46 @@ def test_an_empty_card_has_its_own_code(good):
     condition as a missing trailing newline."""
     (good.path / RUN1).write_bytes(b"")
     assert "bytes.empty-file" in codes(good.path)
+
+
+# --- run scope ---------------------------------------------------------------
+
+
+HNT_RUN2 = "hunt/HNT-001/HNT-001.002.md"
+
+
+def test_scope_is_optional(good):
+    """card-spec 6.1: dropping the key is not a finding; the reference vault
+    validates clean both with the field and without it."""
+    edit(good, HNT_RUN2, '\nscope: "windows workstations"', "")
+    assert validate_vault(good.path) == []
+
+
+def test_scope_value_is_never_checked_against_a_list(good):
+    """No vocabulary exists; an unusual value is as valid as a familiar one."""
+    edit(good, HNT_RUN2, '"windows workstations"', '"three lab racks and a coffee machine"')
+    assert validate_vault(good.path) == []
+
+
+@pytest.mark.parametrize(
+    "value", ['""', '" windows"', '"windows "', '"back\\\\slash"', "[windows]", "7"]
+)
+def test_malformed_scope_is_reported(good, value):
+    edit(good, HNT_RUN2, '"windows workstations"', value)
+    assert set(codes(good.path)) & {"frontmatter.bad-scope", "frontmatter.bad-type"}
+
+
+def test_scope_before_status_is_a_key_order_finding(good):
+    edit(
+        good,
+        HNT_RUN2,
+        'status: complete\nscope: "windows workstations"\n',
+        'scope: "windows workstations"\nstatus: complete\n',
+    )
+    assert "frontmatter.key-order" in codes(good.path)
+
+
+def test_scope_on_a_parent_card_is_an_unknown_key(good):
+    """scope is a run field; the parent schema stays closed against it."""
+    edit(good, BSL, "status: active\n", 'status: active\nscope: "windows"\n')
+    assert "frontmatter.unknown-key" in codes(good.path)

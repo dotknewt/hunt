@@ -320,3 +320,57 @@ def test_task_name_rules():
     assert not cards.is_valid_task_name(" leading space")
     assert not cards.is_valid_task_name("trailing space ")
     assert not cards.is_valid_task_name("em dash \u2014 here")
+
+
+# --- run scope ---------------------------------------------------------------
+
+
+def test_scope_is_optional_and_absent_by_default():
+    """card-spec 6.1: an omitted scope leaves no key behind, so every card
+    written before v5 still renders byte for byte."""
+    run = cards.new_run("BSL-002.001", "2026-09-01")
+    assert run.scope is None
+    assert "scope" not in cards.render_run(run)
+
+
+def test_scope_renders_last_and_round_trips():
+    run = cards.new_run("BSL-002.002", "2026-09-02", "BSL-002.001", "windows servers")
+    text = cards.render_run(run)
+    keys = cards.frontmatter_key_order(text)
+    assert keys == ["id", "parent", "run_date", "previous_run", "status", "scope"]
+    assert 'scope: "windows servers"\n' in text
+    assert cards.parse_run(text).scope == "windows servers"
+    assert cards.render_run(cards.parse_run(text)) == text
+
+
+@pytest.mark.parametrize(
+    "scope",
+    [
+        "windows",
+        "servers",
+        "clients",
+        "on-prem",
+        "firewalls",
+        "EU tier-1 DMZ hosts (excluding lab)",
+        "10.0.0.0/8",
+    ],
+)
+def test_scope_takes_any_well_formed_value(scope):
+    """The value set is deliberately open: the tool checks shape, never meaning."""
+    run = cards.new_run("BSL-002.001", "2026-09-01", None, scope)
+    assert cards.parse_run(cards.render_run(run)).scope == scope
+
+
+@pytest.mark.parametrize(
+    "scope",
+    ["", " ", "windows ", " windows", 'say "windows"', "back\\slash", "two\nlines", 7],
+)
+def test_scope_rejects_a_malformed_value(scope):
+    with pytest.raises(CardError):
+        cards.new_run("BSL-002.001", "2026-09-01", None, scope)
+
+
+def test_a_malformed_scope_in_an_existing_card_is_rejected_on_parse():
+    text = cards.render_run(cards.new_run("BSL-002.001", "2026-09-01", None, "windows"))
+    with pytest.raises(CardError):
+        cards.parse_run(text.replace('scope: "windows"', "scope: 7"))

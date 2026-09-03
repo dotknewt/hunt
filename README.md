@@ -52,6 +52,7 @@ hunt init --vault-path ~/vaults/hunting --vault-branch drafting
 hunt new -c h                     # -> HNT-001, titled after its own id
 hunt new -c hunt --name "Monthly encoded PowerShell persistence hunt"
 hunt run --id HNT-001
+hunt run --id HNT-001 --scope "windows servers"
 hunt validate
 ```
 
@@ -64,6 +65,11 @@ it again on a configured vault verifies and succeeds without committing.
 
 `-c` accepts any spelling of a category, case-insensitively:
 `baseline`/`BSL`/`b`, `hunt`/`HNT`/`h`, `math`/`MTH`/`m`.
+
+`hunt run --scope` records what the run covered - `windows`, `on-prem`,
+`clients`, or any phrase that fits. It is optional and free text: `hunt` checks
+that the value is a single line of printable ASCII and nothing more. There is
+no list of permitted scopes, and nothing enforces one.
 
 `hunt validate` exits 0 when the vault conforms and 1 with one finding per line
 otherwise. It is read-only.

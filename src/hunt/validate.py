@@ -27,6 +27,7 @@ _CARD_ERROR_CODES = {
     "FM-BAD-ID": "frontmatter.bad-id",
     "FM-BAD-CATEGORY": "frontmatter.bad-category",
     "FM-BAD-TAG": "frontmatter.bad-tag",
+    "FM-BAD-SCOPE": "frontmatter.bad-scope",
     "BODY-BAD-H1": "render.bad-h1",
     "BODY-BAD-TASK-NAME": "render.bad-task-name",
     "BODY-MISSING-SECTION": "render.missing-section",
@@ -565,6 +566,8 @@ def _check_values(path, data, parent, is_index, findings):
                     f"parent {value} does not match the containing directory {parent}",
                 )
             )
+    if not is_index and "scope" in data:
+        _check_scope(path, data, findings)
     if "status" in data:
         value = data["status"]
         statuses = cards.PARENT_STATUSES if is_index else cards.RUN_STATUSES
@@ -657,6 +660,27 @@ def _check_tags(path, data, findings):
                 "frontmatter.bad-tag",
                 "tags match ^[a-z0-9][a-z0-9_-]*$; these do not: "
                 + ", ".join(_show(tag) for tag in bad),
+            )
+        )
+
+
+def _check_scope(path, data, findings):
+    """card-spec 6.1: scope is free text, so only its shape is checked here.
+    No value set exists, and inventing one in the validator would be exactly
+    the enforcement the spec withholds."""
+    value = data["scope"]
+    if not isinstance(value, str):
+        findings.append(
+            Finding(path, "frontmatter.bad-type", "scope must be a quoted string")
+        )
+        return
+    if not cards.is_valid_scope(value):
+        findings.append(
+            Finding(
+                path,
+                "frontmatter.bad-scope",
+                f"scope {_show(value)} must be a single non-empty line of printable "
+                "ASCII, without a double quote, a backslash, or surrounding spaces",
             )
         )
 

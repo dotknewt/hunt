@@ -73,6 +73,15 @@ def _card_id(value):
     )
 
 
+def _scope(value):
+    if not cards.is_valid_scope(value):
+        raise argparse.ArgumentTypeError(
+            "invalid scope %r (expected a single non-empty line of printable ASCII, "
+            "without a double quote, a backslash, or surrounding spaces)" % value
+        )
+    return value
+
+
 def _run_date(value):
     if not cards.is_valid_date(value):
         raise argparse.ArgumentTypeError("invalid date %r (expected YYYY-MM-DD)" % value)
@@ -231,7 +240,7 @@ def cmd_run(args, today):
     number = cards.next_run_number(config.vault_path, args.id)
     run_ident = cards.run_id(args.id, number)
     previous = existing[-1][1].id if existing else None
-    run = cards.new_run(run_ident, args.date or today.isoformat(), previous)
+    run = cards.new_run(run_ident, args.date or today.isoformat(), previous, args.scope)
     runs = [card for _, card in existing] + [run]
     run_target = _write(
         config, cards.run_path(config.vault_path, run_ident), cards.render_run(run)
@@ -360,6 +369,12 @@ def build_parser():
         type=_run_date,
         metavar="YYYY-MM-DD",
         help="run date; defaults to today",
+    )
+    run.add_argument(
+        "--scope",
+        type=_scope,
+        metavar="<scope>",
+        help="free-text scope of the run, e.g. 'windows servers'; omitted if unset",
     )
     run.set_defaults(func=cmd_run)
 

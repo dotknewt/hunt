@@ -25,7 +25,7 @@ STATUS_VOID = "void"
 PARENT_STATUSES = (STATUS_ACTIVE, STATUS_RETIRED)
 RUN_STATUSES = (STATUS_OPEN, STATUS_COMPLETE, STATUS_VOID)
 
-PARENT_KEYS = ("id", "category", "tags", "status", "latest_run", "latest_run_date")
+PARENT_KEYS = ("id", "category", "tags", "status", "cadence", "latest_run", "latest_run_date")
 PARENT_REQUIRED_KEYS = ("id", "category", "tags", "status")
 RUN_KEYS = ("id", "parent", "run_date", "previous_run", "status", "scope")
 RUN_REQUIRED_KEYS = ("id", "parent", "run_date", "status")
@@ -99,6 +99,17 @@ class Parent:
     @property
     def status(self):
         return _string(self.frontmatter, "status")
+
+    @property
+    def cadence(self):
+        if "cadence" not in self.frontmatter:
+            return None
+        value = self.frontmatter["cadence"]
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise CardError("cadence must be an integer", "FM-BAD-TYPE")
+        if not is_valid_cadence(value):
+            raise CardError(f"{value!r} is not a valid cadence", "FM-BAD-CADENCE")
+        return value
 
     @property
     def latest_run(self):
@@ -193,6 +204,10 @@ def is_valid_scope(value):
     if not isinstance(value, str) or value != value.strip():
         return False
     return SCOPE_RE.fullmatch(value) is not None
+
+
+def is_valid_cadence(value):
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 1
 
 
 def is_valid_date(value):
@@ -434,19 +449,23 @@ def load_runs(vault_path, parent):
     return [(path, parse_run(read_card(path))) for _, path in _run_files(vault_path, parent)]
 
 
-def new_parent(parent, name, tags=(), why=""):
+def new_parent(parent, name, tags=(), why="", cadence=None):
     ident = parse_parent_id(parent)
     _check_name(name)
     tags = list(tags)
     for tag in tags:
         if not is_valid_tag(tag):
             raise CardError(f"{tag!r} is not a valid tag", "FM-BAD-TAG")
+    if cadence is not None and not is_valid_cadence(cadence):
+        raise CardError(f"{cadence!r} is not a valid cadence", "FM-BAD-CADENCE")
     frontmatter = {
         "id": parent,
         "category": ident.category,
         "tags": tags,
         "status": STATUS_ACTIVE,
     }
+    if cadence is not None:
+        frontmatter["cadence"] = cadence
     return Parent(frontmatter, name, why, "")
 
 
@@ -543,6 +562,7 @@ def parse_parent(text):
     frontmatter = _load_frontmatter(block)
     card = Parent(frontmatter)
     _fields(card, PARENT_REQUIRED_KEYS)
+    card.cadence  # optional, but a present value must still be well formed
     ident = card.id
     if not is_valid_parent_id(ident):
         raise CardError(f"{ident!r} is not a parent ID", "FM-BAD-ID")
@@ -654,6 +674,9 @@ def render_parent(parent, runs):
         f"tags: [{', '.join(parent.tags)}]",
         f"status: {parent.status}",
     ]
+    cadence = parent.cadence
+    if cadence is not None:
+        keys.append(f"cadence: {cadence}")
     if runs:
         keys.append(f"latest_run: {runs[-1].id}")
         keys.append(f'latest_run_date: "{runs[-1].run_date}"')

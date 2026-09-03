@@ -1,6 +1,6 @@
 # Recurring Task-Card Schema (Obsidian, plain-text Markdown)
 
-**Version:** 5
+**Version:** 6
 **Status:** normative schema and validation contract.
 **Scope:** card format, cross-file invariants, and the rules a validator MUST
 enforce, over a tree of card files rooted at a *card root*. Where that root
@@ -10,7 +10,14 @@ no path outside the card tree and no version-control system. Tool
 implementation, CI wiring, and a stats layer are not specified here; their
 *absence* does not weaken any rule below. Every rule below is enforceable today
 by manual inspection and MUST be enforced by code once a validator exists.
-**Changelog:** v5 adds the optional run-card field `scope` (Sections 4 and
+**Changelog:** v6 adds the optional parent-card field `cadence` (Sections 4
+and 5.1): an unquoted positive integer number of days naming how often the
+task is meant to recur. It carries no enforced value set beyond "positive
+integer"; a validator checks only that a present value is well formed. It is
+positioned immediately after `status` and before the managed `latest_run`/
+`latest_run_date` pair, which stay the last two keys. Because the field is
+optional and new, every card written against v5 is still valid under v6.
+v5 adds the optional run-card field `scope` (Sections 4 and
 6.1): free text naming what a run covered, such as `windows` or `on-prem`. Its
 value set is deliberately not defined and MUST NOT be enforced; a validator
 checks only that a present value is well formed. Because the field is optional
@@ -223,6 +230,7 @@ rendered and byte-compared (Section 8.1).
 | `tags` | array of strings | each item matches `^[a-z0-9][a-z0-9_-]*$`; MAY be empty (`[]`); MUST NOT be a bare scalar; written as a single-line flow sequence, items separated by `, ` |
 | `status` (parent) | string enum | `active` \| `retired` |
 | `status` (run) | string enum | `open` \| `complete` \| `void` |
+| `cadence` | integer | positive integer, number of days; unquoted, no leading zero or sign; **no value set beyond "positive integer" is defined and none MUST be enforced** |
 | `run_date`, `latest_run_date` | quoted string | `"YYYY-MM-DD"`, a valid Gregorian date; quoted to avoid YAML date-type coercion |
 | `latest_run`, `previous_run` | string | bare `RUN_ID`, no `.md` |
 | `scope` | quoted string | a single non-empty line; printable ASCII per Section 3.1; no leading or trailing space; MUST NOT contain `"` or `\`; quoted so that a value YAML would otherwise coerce stays a string. **No value set is defined and none MUST be enforced** |
@@ -256,6 +264,7 @@ id: BSL-001
 category: BSL
 tags: [dns, baseline, example]
 status: active
+cadence: 30
 latest_run: BSL-001.002
 latest_run_date: "2026-08-31"
 ---
@@ -263,13 +272,25 @@ latest_run_date: "2026-08-31"
 
 `id`, `category`, `tags`, and `status` are REQUIRED, in that order.
 
+`cadence` is **OPTIONAL**: a bare, unquoted positive integer naming how often,
+in days, the task is meant to recur. When present it MUST immediately follow
+`status` and MUST precede `latest_run`/`latest_run_date` when those are also
+present. Its value set is deliberately not defined beyond "positive integer"
+and MUST NOT be enforced further; a validator checks only that a present
+value is well formed. Unlike most fields, `cadence` is exempt from the
+immutability of invariant 9 (Section 7): on an accepted parent, it MAY be
+added, changed to any other value satisfying Section 4, or removed, since
+it is a live scheduling parameter rather than a record of what happened.
+
 `latest_run` and `latest_run_date` are **conditional**: both MUST be present,
-in that order and immediately after `status`, if and only if the parent
+as the last two keys and in that order, if and only if the parent
 directory contains at least one run file. A parent with no run files MUST omit
 both; a parent with runs MUST carry both. One without the other is invalid.
 
 No aggregate/count fields (e.g. run counts) are permitted here - such values
-MUST be derived from the run files, never hand-maintained.
+MUST be derived from the run files, never hand-maintained. `cadence` is not
+such a field: it is an author-set scheduling parameter, not a value derived
+from the run files.
 
 **`latest_run` semantics:** it MUST always equal the run with the greatest run
 number among that parent's run files, **regardless of that run's `status`** (an
@@ -343,8 +364,8 @@ is:
   and the run-history lines, together with the single blank line between the
   two sections.
 
-The *user region* is everything else: the `id`, `category`, `tags`, and
-`status` frontmatter lines; the `<task name>` in the H1; the whole body of
+The *user region* is everything else: the `id`, `category`, `tags`,
+`status`, and `cadence` frontmatter lines; the `<task name>` in the H1; the whole body of
 `## Why`; and every H2+ section after `## Run history`, with its body.
 
 The managed region is empty of content, though not of its two headings, when
@@ -492,10 +513,12 @@ each invariant constrains what the proposed tree that would replace it may do:
 9. No field of an accepted run card changes, except `status`, advancing one
    step at a time along `open -> complete -> void` (Section 6.1), plus an
    appended (not replacing) addition under `## Outcome`. No field of an
-   accepted parent card changes, except `status` (`active -> retired`, one-way)
-   and, only up to the moment of retirement, `latest_run`/`latest_run_date`
-   advancing to a newly added run. The parent's managed body sections (Section
-   5.2) change only as a consequence of a run file being added.
+   accepted parent card changes, except `status` (`active -> retired`,
+   one-way), `cadence` (freely, to any other value satisfying Section 4, or
+   removed), and, only up to the moment of retirement, `latest_run`/
+   `latest_run_date` advancing to a newly added run. The parent's managed
+   body sections (Section 5.2) change only as a consequence of a run file
+   being added.
 10. `retired` never reverts to `active`.
 
 ---

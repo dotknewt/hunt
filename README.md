@@ -53,7 +53,7 @@ it after initialization.
 ```sh
 hunt init --vault-path ~/vaults/hunting --vault-branch drafting
 hunt new -c h                     # -> HNT-001, titled after its own id
-hunt new -c hunt --name "Monthly encoded PowerShell persistence hunt"
+hunt new -c hunt --name "Monthly encoded PowerShell persistence hunt" --cadence 30
 hunt run --id HNT-001
 hunt run --id HNT-001 --scope "windows servers"
 hunt validate
@@ -74,6 +74,12 @@ configured vault verifies and succeeds without committing.
 `clients`, or any phrase that fits. It is optional and free text: `hunt` checks
 that the value is a single line of printable ASCII and nothing more. There is
 no list of permitted scopes, and nothing enforces one.
+
+`hunt new --cadence` records how often, in days, the task is meant to recur.
+It is optional and takes a positive integer; `hunt` checks only that the
+value is well formed, not what it is. Unlike most parent-card fields, it can
+be changed later, since it is a scheduling parameter rather than a record of
+what happened.
 
 `hunt validate` exits 0 when the vault conforms and 1 with one finding per line
 otherwise. It is read-only.

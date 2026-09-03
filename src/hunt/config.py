@@ -10,7 +10,9 @@ from . import HuntError
 CONF_NAME = "hunt.conf"
 
 _KEYS = ("VAULT_PATH", "VAULT_BRANCH")
-_LINE_RE = re.compile(r'^([A-Za-z_][A-Za-z0-9_]*)="([^"]*)"$')
+# vault-spec 1.1: KEY="value", the key in SCREAMING_SNAKE_CASE. Anything
+# else is a syntax error and not a key we happen not to know.
+_LINE_RE = re.compile(r'^([A-Z][A-Z0-9_]*)="([^"]*)"$')
 
 MAIN_BRANCH = "main"
 # git check-ref-format, reduced to what a branch name may be.
@@ -21,10 +23,39 @@ class ConfigError(HuntError):
     pass
 
 
+class ConfigUnset(ConfigError):
+    """vault-spec 1.2: a key is present but empty, which means unconfigured.
+
+    Kept distinct from a malformed file because the remedy differs: this one is
+    the expected initial state of a fresh checkout, and the fix is to fill the
+    file in or to pass the values to `hunt init`.
+    """
+
+    def __init__(self, path, keys):
+        self.path = Path(path)
+        self.keys = tuple(keys)
+        super().__init__(
+            "%s %s not set in %s"
+            % (
+                " and ".join(self.keys),
+                "is" if len(self.keys) == 1 else "are",
+                self.path,
+            )
+        )
+
+
 @dataclass(frozen=True)
 class Config:
-    vault_path: Path
-    vault_branch: str
+    vault_path: Path | None
+    vault_branch: str | None
+    path: Path | None = None
+    """The hunt.conf these values came from, so a refusal can name it."""
+
+    @property
+    def unset(self) -> tuple[str, ...]:
+        """The keys that are present in the file but empty (vault-spec 1.2)."""
+        pairs = (("VAULT_PATH", self.vault_path), ("VAULT_BRANCH", self.vault_branch))
+        return tuple(key for key, value in pairs if value is None)
 
 
 def find_config(start: Path | None = None) -> Path:
@@ -76,7 +107,27 @@ def load_config(path: Path | None = None) -> Config:
     if missing:
         raise ConfigError(f"{conf}: missing required key(s): {', '.join(missing)}")
 
-    raw_path = values["VAULT_PATH"]
+    return Config(
+        vault_path=_vault_path(conf, values["VAULT_PATH"]),
+        vault_branch=_branch(conf, values["VAULT_BRANCH"]),
+        path=conf,
+    )
+
+
+def require_configured(config: Config) -> Config:
+    """Refuse before any write when a value the command needs is unconfigured."""
+    if config.unset:
+        raise ConfigUnset(config.path, config.unset)
+    return config
+
+
+def load_configured(path: Path | None = None) -> Config:
+    return require_configured(load_config(path))
+
+
+def _vault_path(conf: Path, raw_path: str) -> Path | None:
+    if not raw_path:
+        return None
     if raw_path.startswith("~") and not raw_path.startswith("~/"):
         raise ConfigError(
             f"{conf}: VAULT_PATH must not use ~user expansion, got: {raw_path!r}"
@@ -91,14 +142,14 @@ def load_config(path: Path | None = None) -> Config:
         raise ConfigError(
             f"{conf}: VAULT_PATH must not contain '.' or '..' components, got: {raw_path!r}"
         )
-    return Config(vault_path=vault_path, vault_branch=_branch(conf, values["VAULT_BRANCH"]))
+    return vault_path
 
 
-def _branch(conf: Path, branch: str) -> str:
+def _branch(conf: Path, branch: str) -> str | None:
     """vault-spec 1.2: refuse an unusable branch here, so no later check can be
-    skipped and let it through."""
+    skipped and let it through. An empty value is unconfigured, not unusable."""
     if not branch:
-        raise ConfigError(f"{conf}: VAULT_BRANCH must not be empty")
+        return None
     if branch == MAIN_BRANCH:
         raise ConfigError(
             f"{conf}: VAULT_BRANCH must not be '{MAIN_BRANCH}': it is the record, "
@@ -116,3 +167,58 @@ def _branch(conf: Path, branch: str) -> str:
     if not _BRANCH_RE.fullmatch(branch):
         raise ConfigError(f"{conf}: VAULT_BRANCH is not a valid git branch name: {branch!r}")
     return branch
+
+
+def write_config(path: Path, values: dict[str, str]) -> Path:
+    """Set keys in an existing hunt.conf, or create one holding just them.
+
+    Assignment lines for the given keys are rewritten in place and absent keys
+    are appended; every other line passes through verbatim. vault-spec 1.1
+    permits comments, so a whole-file rewrite from a dict would silently delete
+    the user's own notes. The write is atomic and the result is re-parsed before
+    it replaces the original, so a bug here cannot leave an unreadable config.
+    """
+    conf = Path(path)
+    for key, value in values.items():
+        if key not in _KEYS:
+            raise ConfigError(f"refusing to write unknown key {key}")
+        if not _LINE_RE.match(f'{key}="{value}"'):
+            raise ConfigError(f"refusing to write unquotable value for {key}: {value!r}")
+
+    if conf.exists():
+        try:
+            original = conf.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise ConfigError(f"cannot read {conf}: {exc}") from exc
+    else:
+        original = ""
+
+    lines = original.splitlines()
+    remaining = dict(values)
+    for index, raw in enumerate(lines):
+        match = _LINE_RE.match(raw.strip())
+        if match is None:
+            continue
+        key = match.group(1)
+        if key in remaining:
+            lines[index] = f'{key}="{remaining.pop(key)}"'
+    for key in _KEYS:  # append in schema order, not dict order
+        if key in remaining:
+            lines.append(f'{key}="{remaining.pop(key)}"')
+
+    text = "".join(line + "\n" for line in lines)
+    if not text.isascii():
+        raise ConfigError(f"{conf}: refusing to write non-ASCII configuration")
+
+    temporary = conf.with_name(conf.name + ".hunt-tmp")
+    try:
+        with open(temporary, "wb") as handle:
+            handle.write(text.encode("ascii"))
+            handle.flush()
+            os.fsync(handle.fileno())
+        load_config(temporary)  # a config we cannot read back is not a config
+        os.replace(temporary, conf)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
+    return conf

@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from hunt import HuntError
-from hunt.config import load_config
+from hunt.config import ConfigUnset, load_config, require_configured, write_config
 
 from conftest import write_file
 
@@ -171,7 +171,7 @@ def test_tilde_is_not_expanded_inside_vault_branch(tmp_path, monkeypatch):
         load_config()
 
 
-@pytest.mark.parametrize("value", ["cards", "./cards", "../cards", "vault/BSL-001", ""])
+@pytest.mark.parametrize("value", ["cards", "./cards", "../cards", "vault/BSL-001"])
 def test_relative_vault_path_is_rejected(tmp_path, monkeypatch, value):
     root = tmp_path.resolve()
     conf_at(root, 'VAULT_PATH="{}"\nVAULT_BRANCH="drafting"\n'.format(value))
@@ -198,3 +198,122 @@ def test_malformed_line_is_an_error(tmp_path, monkeypatch, line):
     monkeypatch.chdir(root)
     with pytest.raises(HuntError):
         load_config()
+
+
+# --- unconfigured is a state, not an error (vault-spec 1.2) ------------------
+
+
+@pytest.mark.parametrize(
+    "text,unset",
+    [
+        ('VAULT_PATH=""\nVAULT_BRANCH=""\n', ("VAULT_PATH", "VAULT_BRANCH")),
+        ('VAULT_PATH=""\nVAULT_BRANCH="drafting"\n', ("VAULT_PATH",)),
+        ('VAULT_PATH="/srv/vault"\nVAULT_BRANCH=""\n', ("VAULT_BRANCH",)),
+    ],
+)
+def test_empty_value_parses_as_unset(tmp_path, monkeypatch, text, unset):
+    root = tmp_path.resolve()
+    conf_at(root, text)
+    monkeypatch.chdir(root)
+    config = load_config()
+    assert config.unset == unset
+    assert config.path == root / "hunt.conf"
+
+
+def test_the_repo_conf_parses(monkeypatch):
+    """The file this repository ships with must be readable, not an error."""
+    repo_conf = Path(__file__).resolve().parent.parent / "hunt.conf"
+    config = load_config(repo_conf)
+    assert config.unset == ("VAULT_PATH", "VAULT_BRANCH")
+
+
+def test_require_configured_names_the_file_and_every_unset_key(tmp_path, monkeypatch):
+    root = tmp_path.resolve()
+    conf_at(root, 'VAULT_PATH=""\nVAULT_BRANCH=""\n')
+    monkeypatch.chdir(root)
+    with pytest.raises(ConfigUnset) as caught:
+        require_configured(load_config())
+    message = str(caught.value)
+    assert "VAULT_PATH" in message
+    assert "VAULT_BRANCH" in message
+    assert str(root / "hunt.conf") in message
+
+
+def test_require_configured_passes_a_full_config_through(tmp_path, monkeypatch):
+    root = tmp_path.resolve()
+    conf_at(root, GOOD)
+    monkeypatch.chdir(root)
+    config = load_config()
+    assert require_configured(config) is config
+
+
+def test_lowercase_key_is_a_syntax_error(tmp_path, monkeypatch):
+    """vault-spec 1.1 spells keys in upper case. Before the regex was tightened
+    only the closed-key check rejected this, and it did so as an unknown key."""
+    root = tmp_path.resolve()
+    conf_at(root, 'vault_path="/srv/vault"\nVAULT_BRANCH="drafting"\n')
+    monkeypatch.chdir(root)
+    with pytest.raises(HuntError, match="expected"):
+        load_config()
+
+
+# --- write_config -----------------------------------------------------------
+
+
+def test_write_config_round_trips(tmp_path):
+    conf = conf_at(tmp_path, 'VAULT_PATH=""\nVAULT_BRANCH=""\n')
+    write_config(conf, {"VAULT_PATH": "/srv/vault", "VAULT_BRANCH": "drafting"})
+    config = load_config(conf)
+    assert config.vault_path == Path("/srv/vault")
+    assert config.vault_branch == "drafting"
+    assert config.unset == ()
+
+
+def test_write_config_preserves_comments_and_blank_lines(tmp_path):
+    conf = conf_at(
+        tmp_path,
+        "# where my vault lives\nVAULT_PATH=\"\"\n\n# the branch I draft on\nVAULT_BRANCH=\"\"\n",
+    )
+    write_config(conf, {"VAULT_PATH": "/srv/vault", "VAULT_BRANCH": "drafting"})
+    assert conf.read_text() == (
+        "# where my vault lives\n"
+        'VAULT_PATH="/srv/vault"\n'
+        "\n"
+        "# the branch I draft on\n"
+        'VAULT_BRANCH="drafting"\n'
+    )
+
+
+def test_write_config_creates_a_file_that_does_not_exist(tmp_path):
+    conf = tmp_path / "hunt.conf"
+    write_config(conf, {"VAULT_PATH": "/srv/vault", "VAULT_BRANCH": "drafting"})
+    assert conf.read_text() == 'VAULT_PATH="/srv/vault"\nVAULT_BRANCH="drafting"\n'
+
+
+def test_write_config_emits_lf_and_a_trailing_newline(tmp_path):
+    conf = tmp_path / "hunt.conf"
+    write_config(conf, {"VAULT_PATH": "/srv/vault", "VAULT_BRANCH": "drafting"})
+    data = conf.read_bytes()
+    assert b"\r" not in data
+    assert data.endswith(b"\n")
+    assert data.decode("ascii")
+
+
+def test_write_config_refuses_an_unknown_key(tmp_path):
+    conf = conf_at(tmp_path, GOOD)
+    with pytest.raises(HuntError, match="VAULT_REMOTE"):
+        write_config(conf, {"VAULT_REMOTE": "origin"})
+    assert conf.read_text() == GOOD
+
+
+def test_write_config_refuses_a_value_holding_a_quote(tmp_path):
+    conf = conf_at(tmp_path, GOOD)
+    with pytest.raises(HuntError, match="VAULT_PATH"):
+        write_config(conf, {"VAULT_PATH": '/srv/"odd"'})
+    assert conf.read_text() == GOOD
+
+
+def test_write_config_leaves_no_temporary_file_behind(tmp_path):
+    conf = tmp_path / "hunt.conf"
+    write_config(conf, {"VAULT_PATH": "/srv/vault", "VAULT_BRANCH": "drafting"})
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["hunt.conf"]

@@ -4,6 +4,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 SRC = Path(__file__).resolve().parents[1] / "src"
 
 NAME = "Monthly encoded PowerShell persistence hunt"
@@ -13,21 +15,27 @@ DATE2 = "2026-08-28"
 FINDING_RE = re.compile(r"^(?P<path>\S+): (?P<code>[A-Za-z0-9_.-]+): \S.*$")
 
 
-def hunt(vault, *args):
+def run_hunt(*args, cwd, conf=None, **env_extra):
     env = {
         k: v
         for k, v in os.environ.items()
         if not k.startswith("GIT_") and not k.startswith("HUNT_")
     }
     env["PYTHONPATH"] = str(SRC)
-    env["HUNT_CONF"] = str(vault.conf)
+    if conf is not None:
+        env["HUNT_CONF"] = str(conf)
+    env.update(env_extra)
     return subprocess.run(
         [sys.executable, "-m", "hunt", *args],
-        cwd=str(vault.path),
+        cwd=str(cwd),
         env=env,
         capture_output=True,
         text=True,
     )
+
+
+def hunt(vault, *args):
+    return run_hunt(*args, cwd=vault.path, conf=vault.conf)
 
 
 def git(vault, *args):
@@ -327,7 +335,9 @@ def test_bad_flags_exit_2(vault):
     assert result.returncode == 2
     assert "usage" in result.stderr.lower()
 
-    result = hunt(vault, "new", "--category", "hunt")
+    # --name is optional (it defaults to the parent id), so --id is the
+    # missing-required-argument case now.
+    result = hunt(vault, "run")
     assert result.returncode == 2
 
     result = hunt(vault, "frobnicate")
@@ -338,5 +348,120 @@ def test_no_args_prints_help_and_exits_0(vault):
     result = hunt(vault)
     assert result.returncode == 0, result.stderr
     assert "usage" in result.stdout.lower()
-    for name in ("init", "new", "run", "validate"):
+    for name in ("init", "new", "run", "validate", "completion"):
         assert name in result.stdout
+    assert "__complete" not in result.stdout
+
+
+# --- an unconfigured hunt.conf instructs instead of breaking (vault-spec 1.2) -
+
+
+def empty_conf(tmp_path):
+    conf = tmp_path / "hunt.conf"
+    conf.write_text('VAULT_PATH=""\nVAULT_BRANCH=""\n')
+    return conf
+
+
+def test_unset_config_instructs_and_exits_2(tmp_path):
+    conf = empty_conf(tmp_path)
+    result = run_hunt("new", "--category", "hunt", cwd=tmp_path, conf=conf)
+    assert result.returncode == 2, result.stderr
+    assert "VAULT_PATH" in result.stderr
+    assert "VAULT_BRANCH" in result.stderr
+    assert str(conf) in result.stderr
+    assert "hunt init" in result.stderr
+    assert "Traceback" not in result.stderr
+
+
+def test_unset_config_does_not_stop_help_or_completion(tmp_path):
+    conf = empty_conf(tmp_path)
+    for args in (("--help",), ("completion", "zsh"), ("__complete", "ids")):
+        result = run_hunt(*args, cwd=tmp_path, conf=conf)
+        assert result.returncode == 0, (args, result.stderr)
+        assert "Traceback" not in result.stderr
+
+
+def test_the_repo_ships_an_unconfigured_conf(tmp_path):
+    """The values tracked on main are empty, and the CLI must still run."""
+    repo_conf = Path(__file__).resolve().parents[1] / "hunt.conf"
+    result = run_hunt("validate", cwd=tmp_path, conf=repo_conf)
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "VAULT_PATH" in result.stderr
+
+
+# --- category spellings and the default title (card-spec 4) --------------------
+
+
+@pytest.mark.parametrize("spelling", ["h", "H", "hunt", "HNT", "hnt", "Hunt"])
+def test_every_category_spelling_reaches_the_same_directory(vault, spelling):
+    result = hunt(vault, "new", "-c", spelling, "--name", NAME)
+    assert result.returncode == 0, result.stderr
+    assert (vault.path / "hunt" / "HNT-001" / "HNT-001.md").is_file()
+
+
+def test_new_without_a_name_titles_the_card_after_its_id(vault):
+    result = hunt(vault, "new", "-c", "h")
+    assert result.returncode == 0, result.stderr
+    card = (vault.path / "hunt" / "HNT-001" / "HNT-001.md").read_text()
+    assert "# HNT-001 - HNT-001" in card
+    assert hunt(vault, "validate").returncode == 0
+
+
+def test_unknown_category_lists_every_accepted_spelling(vault):
+    result = hunt(vault, "new", "-c", "nope")
+    assert result.returncode == 2
+    for spelling in ("baseline", "BSL", "b", "hunt", "HNT", "h", "math", "MTH", "m"):
+        assert spelling in result.stderr
+
+
+# --- completion (shtab) -------------------------------------------------------
+
+
+@pytest.mark.parametrize("shell", ["zsh", "bash", "powershell"])
+def test_completion_script_wires_the_dynamic_helpers(vault, shell):
+    result = hunt(vault, "completion", shell)
+    assert result.returncode == 0, result.stderr
+    assert "--category" in result.stdout
+    assert "hunt __complete categories" in result.stdout
+    assert "hunt __complete ids" in result.stdout
+    for command in ("init", "new", "run", "validate", "completion"):
+        assert command in result.stdout
+    # The hidden subcommand is a completion helper, not something to complete to.
+    assert "__complete categories" in result.stdout  # the helper call, and only that
+    assert result.stdout.count("__complete") == 2
+
+
+def test_completion_rejects_an_unsupported_shell(vault):
+    assert hunt(vault, "completion", "csh").returncode == 2
+
+
+def test_hidden_complete_lists_categories_and_ids(vault):
+    result = hunt(vault, "__complete", "categories")
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.split() == [
+        "baseline",
+        "hunt",
+        "math",
+        "BSL",
+        "HNT",
+        "MTH",
+        "b",
+        "h",
+        "m",
+    ]
+
+    assert hunt(vault, "__complete", "ids").stdout == ""
+    assert hunt(vault, "new", "-c", "h").returncode == 0
+    assert hunt(vault, "new", "-c", "m").returncode == 0
+    result = hunt(vault, "__complete", "ids")
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.split() == ["HNT-001", "MTH-001"]
+
+
+def test_hidden_complete_stays_silent_when_nothing_is_configured(tmp_path):
+    """A completer that prints a diagnostic prints it into the user's prompt."""
+    for conf in (empty_conf(tmp_path), tmp_path / "absent.conf"):
+        result = run_hunt("__complete", "ids", cwd=tmp_path, conf=conf)
+        assert result.returncode == 0, result.stderr
+        assert result.stdout == ""
+        assert result.stderr == ""

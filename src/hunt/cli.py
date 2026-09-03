@@ -7,18 +7,34 @@ from pathlib import Path
 
 from . import HuntError, cards, vault
 from .cards import CardError
-from .config import load_config
+from .config import CONF_NAME, ConfigUnset, load_config, load_configured
 from .validate import validate_parent_dir, validate_vault
 from .vault import VaultError
 
 
+# Typing conveniences, deliberately not in cards.py: cards.CATEGORIES mirrors
+# the closed set of card-spec 2.1, and an input shorthand is not part of it.
+_CATEGORY_ALIASES = {"b": "BSL", "h": "HNT", "m": "MTH"}
+
+
+def category_spellings():
+    """Every spelling --category accepts, in the order the help text lists them."""
+    return (
+        sorted(cards.CATEGORIES.values())
+        + sorted(cards.CATEGORIES)
+        + sorted(_CATEGORY_ALIASES)
+    )
+
+
 def _category(value):
+    if isinstance(value, str) and value.lower() in _CATEGORY_ALIASES:
+        return _CATEGORY_ALIASES[value.lower()]
     try:
         return cards.resolve_category(value)
     except CardError:
-        names = sorted(cards.CATEGORIES.values()) + sorted(cards.CATEGORIES)
         raise argparse.ArgumentTypeError(
-            "invalid category %r (expected one of: %s)" % (value, ", ".join(names))
+            "invalid category %r (expected one of: %s)"
+            % (value, ", ".join(category_spellings()))
         )
 
 
@@ -74,11 +90,12 @@ def cmd_init(args, today):
 
 
 def cmd_new(args, today):
-    config = load_config()
+    config = load_configured()
     vault.ensure_writable(config)
     number = cards.next_parent_number(config.vault_path, args.category)
     parent_id = cards.parent_id(args.category, number)
-    parent = cards.new_parent(parent_id, args.name)
+    # Not an argparse default: the id is unknown until after allocation.
+    parent = cards.new_parent(parent_id, args.name or parent_id)
     path = _write(
         config,
         cards.parent_path(config.vault_path, parent_id),
@@ -90,7 +107,7 @@ def cmd_new(args, today):
 
 
 def cmd_run(args, today):
-    config = load_config()
+    config = load_configured()
     vault.ensure_writable(config)
     parent_path, parent = cards.load_parent(config.vault_path, args.id)
     if parent.status == cards.STATUS_RETIRED:
@@ -118,7 +135,7 @@ def cmd_run(args, today):
 
 
 def cmd_validate(args, today):
-    config = load_config()
+    config = load_configured()
     if not config.vault_path.is_dir():
         raise VaultError("vault does not exist: %s" % config.vault_path)
     if not vault.is_repo(config.vault_path):
@@ -140,6 +157,52 @@ def cmd_validate(args, today):
     return 1 if findings else 0
 
 
+# Every shell gets the same one-line shell-out to `hunt __complete`. No shell
+# knows where the vault is, how a card is named, or that hunt.conf exists, so
+# adding a shell is a matter of translating one call rather than reimplementing
+# any of that in shell script.
+_COMPLETION_SHELLS = ("zsh", "bash", "powershell")
+
+
+def _dynamic(kind, function):
+    return {
+        "zsh": "($(hunt __complete %s 2>/dev/null))" % kind,
+        "bash": function,
+        "powershell": function,
+        "preamble": {
+            "bash": '%s(){ compgen -W "$(hunt __complete %s 2>/dev/null)" -- "$1"; }'
+            % (function, kind),
+            "powershell": "\n".join(
+                [
+                    "function %s {" % function,
+                    "  param([string]$WordToComplete)",
+                    "  (hunt __complete %s 2>$null) |" % kind,
+                    '    Where-Object { $_ -like "$WordToComplete*" }',
+                    "}",
+                ]
+            ),
+        },
+    }
+
+
+def cmd_completion(args, today):
+    # Imported here, not at module scope: the CLI must still run when shtab is
+    # missing from the interpreter, which is exactly the case the tests create.
+    import shtab
+
+    print(shtab.complete(build_parser(), shell=args.shell), end="")
+    return 0
+
+
+def cmd_hidden_complete(args, today):
+    from . import complete
+
+    producers = {"ids": complete.parent_ids, "categories": complete.categories}
+    for candidate in producers[args.kind]():
+        print(candidate)
+    return 0
+
+
 def build_parser():
     parser = argparse.ArgumentParser(
         prog="hunt",
@@ -152,21 +215,25 @@ def build_parser():
 
     new = subparsers.add_parser("new", help="create a parent card")
     new.add_argument(
+        "-c",
         "--category",
         required=True,
         type=_category,
         metavar="<category>",
-        help="baseline, hunt, math, or the code BSL, HNT, MTH",
-    )
+        help="one of: %s (case-insensitive)" % ", ".join(category_spellings()),
+    ).complete = _dynamic("categories", "_hunt_categories")
     new.add_argument(
-        "--name", required=True, type=_task_name, metavar="<task name>", help="task name"
+        "--name",
+        type=_task_name,
+        metavar="<task name>",
+        help="task name; defaults to the allocated parent id",
     )
     new.set_defaults(func=cmd_new)
 
     run = subparsers.add_parser("run", help="create the next run card for a parent")
     run.add_argument(
         "--id", required=True, type=_parent_id, metavar="<PARENT-ID>", help="parent id"
-    )
+    ).complete = _dynamic("ids", "_hunt_ids")
     run.add_argument(
         "--date",
         type=_run_date,
@@ -181,6 +248,21 @@ def build_parser():
     )
     validate.set_defaults(func=cmd_validate)
 
+    completion = subparsers.add_parser(
+        "completion", help="print a shell completion script"
+    )
+    completion.add_argument(
+        "shell", choices=_COMPLETION_SHELLS, metavar="<shell>", help="target shell"
+    )
+    completion.set_defaults(func=cmd_completion)
+
+    # No help= at all, which is what actually hides it: argparse formats a
+    # subparser's pseudo-actions without re-checking SUPPRESS, so help=SUPPRESS
+    # would print the literal "==SUPPRESS==" in `hunt --help`.
+    hidden = subparsers.add_parser("__complete")
+    hidden.add_argument("kind", choices=("ids", "categories"), metavar="<kind>")
+    hidden.set_defaults(func=cmd_hidden_complete)
+
     return parser
 
 
@@ -193,9 +275,26 @@ def main(argv=None, today=None):
     args = parser.parse_args(argv)
     try:
         return args.func(args, today or date.today())
+    except ConfigUnset as exc:
+        # Exit 2, the usage code: nothing is wrong with the vault, the tool has
+        # not been told where it is. Keep it distinct from the exit 1 of a
+        # domain error so a caller can tell "misconfigured" from "refused".
+        print(_unset_help(exc), file=sys.stderr)
+        return 2
     except HuntError as exc:
         print("hunt: %s" % exc, file=sys.stderr)
         return 1
+
+
+def _unset_help(exc):
+    return "\n".join(
+        [
+            "hunt: %s" % exc,
+            "",
+            "Edit that file, or run:",
+            "    hunt init --vault-path <PATH> --vault-branch <NAME>",
+        ]
+    )
 
 
 if __name__ == "__main__":

@@ -1,0 +1,4 @@
+.callout[data-callout="cmd"] {
+    --callout-color: 0, 255, 50;
+    --callout-icon: square-terminal;
+}

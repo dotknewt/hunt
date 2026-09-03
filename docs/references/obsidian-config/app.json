@@ -1,0 +1,40 @@
+{
+  "promptDelete": false,
+  "mobileToolbarCommands": [
+    "editor:set-heading",
+    "editor:indent-list",
+    "editor:unindent-list",
+    "editor:toggle-checklist-status",
+    "editor:insert-table",
+    "editor:insert-codeblock",
+    "editor:insert-wikilink",
+    "editor:undo",
+    "editor:redo",
+    "editor:toggle-bold",
+    "editor:toggle-italics",
+    "editor:toggle-strikethrough",
+    "editor:insert-link",
+    "editor:insert-footnote",
+    "command-palette:open",
+    "editor:configure-toolbar"
+  ],
+  "readableLineLength": false,
+  "attachmentFolderPath": "./attachments",
+  "userIgnoreFilters": [
+    "attachments/"
+  ],
+  "newFileLocation": "current",
+  "alwaysUpdateLinks": true,
+  "showLineNumber": false,
+  "mobilePullAction": "editor:toggle-blockquote",
+  "showUnsupportedFiles": false,
+  "pdfExportSettings": {
+    "pageSize": "A4",
+    "landscape": false,
+    "margin": "0",
+    "downscalePercent": 100
+  },
+  "propertiesInDocument": "source",
+  "tabSize": 2,
+  "deleteUnlinkedAttachments": "always"
+}

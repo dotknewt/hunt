@@ -1,0 +1,28 @@
+{
+  "types": {
+    "aliases": "aliases",
+    "cssclasses": "multitext",
+    "tags": "tags",
+    "planting": "multitext",
+    "timings": "date",
+    "pruning": "date",
+    "wiring": "date",
+    "dormancy": "checkbox",
+    "potting": "multitext",
+    "wire": "number",
+    "prune": "number",
+    "chop": "number",
+    "pot": "number",
+    "links": "multitext",
+    "modified": "datetime",
+    "created": "datetime",
+    "schema": "number",
+    "type": "text",
+    "owner": "text",
+    "author": "text",
+    "contributors": "multitext",
+    "related": "multitext",
+    "thingtest": "checkbox",
+    "thing": "checkbox"
+  }
+}

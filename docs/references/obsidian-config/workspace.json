@@ -1,0 +1,229 @@
+{
+  "main": {
+    "id": "1be2a4530afd275e",
+    "type": "split",
+    "children": [
+      {
+        "id": "509f8e37eb3fb085",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "5df23ab3127fe27b",
+            "type": "leaf",
+            "state": {
+              "type": "empty",
+              "state": {},
+              "icon": "lucide-file",
+              "title": "New tab"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "265540eba73ce069",
+    "type": "split",
+    "children": [
+      {
+        "id": "467fc7a68c335b35",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "b5d00982b51611c2",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-folder-closed",
+              "title": "Files"
+            }
+          },
+          {
+            "id": "3b054f80cbc119ee",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "Search"
+            }
+          },
+          {
+            "id": "e514b7e7d8c564da",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {},
+              "icon": "lucide-bookmark",
+              "title": "Bookmarks"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300
+  },
+  "right": {
+    "id": "09b44288252b5675",
+    "type": "split",
+    "children": [
+      {
+        "id": "51c5d6cb86ac9445",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "c80c1b99e3298554",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "Backlinks"
+            }
+          },
+          {
+            "id": "be131225d07bdb1a",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "Outgoing links"
+            }
+          },
+          {
+            "id": "682944b733d6dbda",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "Tags"
+            }
+          },
+          {
+            "id": "64aa513785d8c65c",
+            "type": "leaf",
+            "state": {
+              "type": "all-properties",
+              "state": {
+                "sortOrder": "frequency",
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-ghost",
+              "title": "all-properties"
+            }
+          },
+          {
+            "id": "2ca389b642c83bff",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "followCursor": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "Outline"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "audio-recorder:Start/stop recording": false,
+      "graph:Open graph view": false,
+      "canvas:Create new canvas": false,
+      "command-palette:Open command palette": false,
+      "bases:Create new base": false
+    }
+  },
+  "active": "5df23ab3127fe27b",
+  "lastOpenFiles": [
+    "note-types.md",
+    "frontmatter.md",
+    "Untitled.md",
+    "Agent Brain.md",
+    "test.md",
+    "IT/Tools/atomic redteam.md",
+    "IT/Tools/bloodhound.md",
+    "IT/Tools/Git.md",
+    "IT/Tools/Kusto Query Language.md",
+    "IT/CTI/source-research.md",
+    "IdeaDump.md",
+    "IT/Claude Environment Settings.md",
+    "Personal/Tonerider 5-way switch.md",
+    "IT/Python Cheat Sheet.md",
+    "IT/Course Notes/CARTE/KC2/KC2 - Loot.md",
+    "IT/Course Notes/CARTE/Cheat Sheet/Az - Enumeration.md",
+    "IT/Course Notes/Constructing Defense/Credential Access - Windows.md",
+    "IT/Course Notes/CARTE/Cheat Sheet/teamfiltration/2-cheat-sheet.md",
+    "IT/Course Notes/CARTE/Cheat Sheet/Az - Authentication.md",
+    "IT/Course Notes/CARTE/Cheat Sheet/teamfiltration/1-cheat-sheet.md",
+    "IT/Course Notes/CARTE/On-prem Cheat Sheet.md",
+    "IT/Course Notes/Constructing Defense/Host based detections.md",
+    "IT/Course Notes/CARTE/KC2/KC2 - Objective 9.md",
+    "IT/Course Notes/FOR578/Resources.md",
+    "IT/Course Notes/CARTE/KC4/KC4 - Objective 14.md",
+    "IT/Course Notes/CARTE/KC4/KC4 - Objective 15.md",
+    "IT/Course Notes/CARTE/Cheat Sheet/teamfiltration",
+    "IT/Course Notes/Constructing Defense",
+    "IT/Course Notes/CARTE/Cheat Sheet",
+    "IT/Course Notes/CARTE/Tools",
+    "IT/Course Notes/CARTE/KC4",
+    "IT/Course Notes/CARTE/KC3",
+    "IT/Course Notes/CARTE/KC2",
+    "IT/Course Notes/CARTE/KC1",
+    "IT/Course Notes/FOR578",
+    "IT/Course Notes/CARTE",
+    "claude-context-optimizer/assets/logo.svg",
+    "claude-context-optimizer/assets/logo.png",
+    "claude-context-optimizer/assets/how-it-works.svg",
+    "claude-context-optimizer/assets/how-it-works.png",
+    "claude-context-optimizer/assets/heatmap-demo.svg",
+    "claude-context-optimizer/assets/heatmap-demo.png",
+    "claude-context-optimizer/assets/efficiency-score.svg",
+    "claude-context-optimizer/assets/efficiency-score.png",
+    "claude-context-optimizer/assets/dashboard-demo.svg",
+    "claude-context-optimizer/assets/dashboard-demo.png",
+    "IT/CTI/Untitled.canvas"
+  ]
+}

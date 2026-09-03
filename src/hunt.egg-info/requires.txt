@@ -1,0 +1,4 @@
+PyYAML<7,>=6
+
+[test]
+pytest<10,>=8

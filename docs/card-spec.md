@@ -1,11 +1,17 @@
 # Recurring Task-Card Schema (Obsidian, plain-text Markdown)
 
+**Version:** 3
 **Status:** normative schema and validation contract.
-**Scope:** card format, cross-file invariants, and the rules a
-validator MUST enforce. Tool implementation, CI wiring, and a stats layer are
-not specified here (Section 9); their *absence* does not weaken any rule
-above — every rule below is enforceable today by manual inspection and MUST
+**Scope:** card format, cross-file invariants, and the rules a validator MUST
+enforce. Where the vault lives, how it is configured, and how its Git branches
+are used are specified in `docs/vault-spec.md`. Tool implementation, CI wiring,
+and a stats layer are not specified here; their *absence* does not weaken any
+rule below. Every rule below is enforceable today by manual inspection and MUST
 be enforced by code once a validator exists.
+**Changelog:** v3 makes card files ASCII only, adds `open` to the run status
+enum, removes `run_number` from frontmatter, pins file conventions (Section
+3.1) and the parent's managed region (Section 5.2), and rebases number
+allocation on the working tree (Section 2.2).
 
 Keywords **MUST**, **MUST NOT**, **SHOULD**, **SHOULD NOT**, **MAY** are
 normative (RFC 2119 sense).
@@ -15,10 +21,17 @@ normative (RFC 2119 sense).
 ## 1. Scope and Model
 
 - Every task is **recurring**.
-- A **parent** (task-card) has one or more **runs** (run-cards); each run is a single execution.
-- The vault location is defined in  (`task-cards/`) is a Git repository. **`main` is the record.** All
-  immutability and numbering rules apply to `main`. On a branch, files are
-  drafts and MAY be freely edited, renamed, deleted, or renumbered.
+- A **parent** (task-card) has zero or more **runs** (run-cards); each run is a
+  single execution. A parent that has no run files yet is a legal state.
+- The vault location is defined in `hunt.conf` (see `docs/vault-spec.md`). The
+  vault is a Git repository whose root is simultaneously the Obsidian vault
+  root and the card root of Section 3.
+- External notes and attachments are out of scope. Nothing but card files and
+  Obsidian's own `.obsidian/` state lives in the vault, so every link this spec
+  constrains is a link between card files.
+- **`main` is the record.** All immutability and numbering rules apply to
+  `main`. On a branch, files are drafts and MAY be freely edited, renamed,
+  deleted, or renumbered.
 - Two validation modes exist (Section 8): **snapshot validation** (is this
   tree internally consistent?) and **main-transition validation** (is this
   change to `main` legal given the preceding `main` tree?).
@@ -47,24 +60,48 @@ RUN_ID      := PARENT_ID "." DIGIT3
   | `HNT` | `hunt` |
   | `MTH` | `math` |
 
+- This table is the single source of truth in **both** directions: it maps a
+  category code to the one directory name that code's cards live in, and it
+  maps a directory name back to the one code its cards carry. No other
+  mapping, alias, or fallback exists.
 - IDs in frontmatter scalar values and in `[[wikilinks]]` MUST be the bare
   full ID: no `.md` suffix, no bracket characters inside the value, no
   aliases (`[[BSL-001|Baseline 1]]` is forbidden anywhere in a card file),
   no bare run numbers (`001`, `[[001]]`).
-- A filename (its stem) MUST be globally unique across the entire vault
-  (`task-cards/**`).
+- A filename stem is globally unique across the vault. This is **derived**,
+  not a second scan: the ID grammar, the one-index-per-parent-directory rule,
+  and the no-other-Markdown rule of Section 3 already force it. Uniqueness is
+  **case-insensitive**: two stems differing only in case (`BSL-001` and
+  `bsl-001`) are the same stem, and on a case-insensitive filesystem the same
+  file. A tree containing both is invalid even where the filesystem can hold
+  both.
 
 ### 2.2 Numbering
 
 - Parent numbers, per category, and run numbers, per parent, MUST be
   **contiguous positive integers starting at 1**, zero-padded to 3 digits.
-- The next number to assign is **(greatest existing number on `main`) + 1**.
-  Since numbers are never deleted, reused, or renumbered on `main` (Section
-  7), the greatest existing number on `main` is always exactly the greatest
-  number ever assigned — there is no separate history lookup.
+- **Precondition.** Before any number is allocated, the working branch MUST
+  contain `main`: `main` MUST be an ancestor of the working branch's tip.
+  Allocating without having established this is forbidden; a tool that cannot
+  establish it MUST refuse to allocate rather than guess.
+- Given that precondition, and given that no card file on `main` is ever
+  deleted, renamed, or renumbered (Section 7), every number ever assigned on
+  `main` is present in the working tree. The next number to assign is
+  therefore **(greatest number present in the working tree) + 1**, determined
+  by scanning the working tree alone. There is no history lookup and no Git
+  query:
+  - the next parent number for a category is derived from the parent
+    directories present in that category directory;
+  - the next run number for a parent is derived from the run files present in
+    that parent directory;
+  - an absent or empty directory yields `001`.
 - 3-digit padding caps a category at 999 parents and a parent at 999 runs.
-  Exceeding this requires a spec revision to widen padding; out of scope
-  here.
+  A request that would allocate number 1000 MUST be reported as an explicit
+  error. It MUST NOT wrap, silently widen the padding, or reuse a number.
+  Widening the padding is a spec revision, out of scope here.
+- Numbers are allocated per working tree. Two branches that each allocate
+  without having merged the other's work will collide; resolving such a
+  collision at merge time is out of scope for this spec.
 
 ---
 
@@ -91,19 +128,61 @@ task-cards/
 
 **Path rules (MUST):**
 
-- `task-cards/` is the vault root. It MAY be relocated; no rule depends on its
-  absolute path.
+- `task-cards/` above stands for the vault root, whose absolute path comes
+  from `hunt.conf`. It MAY be relocated; no rule depends on its absolute path
+  or on its directory name.
 - `<category-dir>` MUST be the exact directory from the Section 2.1 table.
 - A parent directory is named exactly `<PARENT-ID>` and MUST live directly
   under its category directory.
 - A parent directory MUST contain exactly one file `<PARENT-ID>.md` (the
   index) and zero or more files `<PARENT-ID>.<NNN>.md` (runs).
-- No other Markdown file may exist under `task-cards/**`: every card file is
+- No other Markdown file may exist under the vault root: every card file is
   either that directory's index or a run belonging to that directory's
   parent.
+- No non-Markdown file may exist under the vault root either, except inside
+  `.obsidian/` (Obsidian's own state) and `.git/` (Git's own state), plus a
+  single `.gitignore` at the vault root. That one file is permitted because
+  the clean-work-tree precondition (`docs/vault-spec.md` Section 5) is
+  otherwise unsatisfiable on a filesystem that writes stray metadata such as
+  `.DS_Store` into every directory. It MUST NOT ignore any card file. This
+  forbids attachments, templates, tooling assets, and editor or operating
+  system artifacts such as `.DS_Store` and `Thumbs.db`.
 - Only the final `.md` is a file extension; the `.` inside a run ID
   (`BSL-001.002`) is the parent/run separator, not part of the extension.
-- Templates and any tooling assets MUST NOT live under `task-cards/`.
+- Templates and any tooling assets MUST NOT live under the vault root.
+
+### 3.1 File Conventions
+
+These apply to every card file. They exist so that the "contains exactly one
+line" rules of Sections 5.2 and 6.2 are testable and so that a card can be
+rendered and byte-compared (Section 8.1).
+
+- **ASCII only.** Every byte of a card file MUST be either LF (`0x0A`) or a
+  printable ASCII byte in the range `0x20`-`0x7E`. No em dash, en dash, arrow,
+  non-breaking space, smart quote, or tab appears anywhere in a card file, in
+  frontmatter or in body prose. The separator in the H1 (Section 5.2) and in
+  run-history lines is U+002D HYPHEN-MINUS, written plainly as `-`.
+- **Encoding.** Files are UTF-8 with no byte-order mark. The ASCII-only rule
+  makes the byte stream identical to ASCII; UTF-8 is the declared encoding so
+  that a future padding or category revision has room to move.
+- **Line endings.** LF only. A CR byte (`0x0D`) anywhere in a card file is a
+  violation, including in a CRLF pair.
+- **Trailing newline.** A card file MUST end with exactly one newline: the
+  last byte is LF and the byte before it is not LF. An empty file, a file with
+  no final newline, and a file with a blank line at the end are all invalid.
+- **Trailing whitespace.** No line may end with a space.
+- **Frontmatter key order.** Keys MUST appear in exactly the order listed in
+  Section 5.1 (parent) or Section 6.1 (run). A conditional key that is absent
+  leaves the remaining keys in that same relative order; no key is reordered
+  to close the gap.
+- **Blank lines between blocks.** A *block* is the frontmatter, the H1, or an
+  H2-or-deeper section together with its body. Consecutive blocks MUST be
+  separated by exactly one blank line. There is no blank line between a
+  heading and the first line of its body, and no blank line at the start of
+  the file. Within a section body, blank lines are the author's to place as
+  Markdown requires, except where a section's content is pinned exactly
+  (Section 5.2). A section whose body is empty contributes its heading line
+  and nothing else.
 
 ---
 
@@ -114,15 +193,27 @@ task-cards/
 | `id` | string | bare `PARENT_ID` or `RUN_ID`, matches Section 2.1 grammar and the file's own path |
 | `category` | string | one of the Section 2.1 codes; MUST equal the prefix of `id` |
 | `parent` | string | bare `PARENT_ID`; MUST equal the ID of the containing directory |
-| `tags` | array of strings | MAY be empty (`[]`); MUST NOT be a bare scalar |
+| `tags` | array of strings | each item matches `^[a-z0-9][a-z0-9_-]*$`; MAY be empty (`[]`); MUST NOT be a bare scalar; written as a single-line flow sequence, items separated by `, ` |
 | `status` (parent) | string enum | `active` \| `retired` |
-| `status` (run) | string enum | `complete` \| `void` |
-| `run_number` | integer | matches the run's filename numeric suffix exactly (e.g. filename `...002.md` → `run_number: 2`); unique and contiguous within its parent (Section 2.2) |
+| `status` (run) | string enum | `open` \| `complete` \| `void` |
 | `run_date`, `latest_run_date` | quoted string | `"YYYY-MM-DD"`, a valid Gregorian date; quoted to avoid YAML date-type coercion |
 | `latest_run`, `previous_run` | string | bare `RUN_ID`, no `.md` |
 
+One body value is constrained here because tooling must reproduce it exactly:
+
+| Value | Where | Format / constraint |
+|---|---|---|
+| `<task name>` | parent H1, Section 5.2 | non-empty; a single line; printable ASCII per Section 3.1; no leading or trailing whitespace; MAY contain hyphens |
+
+**Run numbers are not a field.** A run's number is the numeric suffix of its
+own filename (`BSL-001.002.md` is run 2). It MUST NOT appear in frontmatter;
+`run_number` is not a permitted key in any card file. Because the H1's ID
+prefix is fixed-length, `<task name>` is recovered by stripping the exact
+prefix `# <PARENT-ID> - `, not by splitting on the separator, so a task name
+containing a hyphen is unambiguous.
+
 All frontmatter blocks MUST be delimited by `---` / `---`. Keys not listed
-in Sections 5/6 MUST NOT appear (closed schema — unknown keys are a
+in Sections 5/6 MUST NOT appear (closed schema - unknown keys are a
 validation failure, not silently ignored).
 
 ---
@@ -135,37 +226,54 @@ validation failure, not silently ignored).
 ---
 id: BSL-001
 category: BSL
-tags: [example, tag]
+tags: [dns, baseline, example]
 status: active
 latest_run: BSL-001.002
 latest_run_date: "2026-08-31"
 ---
 ```
 
-All six keys are REQUIRED. No aggregate/count fields (e.g. run counts) are
-permitted here — such values MUST be derived from the run files, never
-hand-maintained.
+`id`, `category`, `tags`, and `status` are REQUIRED, in that order.
 
-**`latest_run` semantics:** it MUST always equal the run with the greatest
-`run_number` among that parent's run files, **regardless of that run's
-`status`** (a `void` run can be `latest_run`). This keeps "latest" a single
+`latest_run` and `latest_run_date` are **conditional**: both MUST be present,
+in that order and immediately after `status`, if and only if the parent
+directory contains at least one run file. A parent with no run files MUST omit
+both; a parent with runs MUST carry both. One without the other is invalid.
+
+No aggregate/count fields (e.g. run counts) are permitted here - such values
+MUST be derived from the run files, never hand-maintained.
+
+**`latest_run` semantics:** it MUST always equal the run with the greatest run
+number among that parent's run files, **regardless of that run's `status`** (an
+`open` or `void` run can be `latest_run`). This keeps "latest" a single
 unambiguous rule; consumers wanting only completed runs filter on `status`
-themselves.
+themselves. A consequence, stated here so no reader has to discover it: when
+the latest run is voided, the parent goes on transcluding a `void` run's
+Outcome, and invariant 9 forbids editing the merged parent to point elsewhere.
+That is intended. The remedy is a new run, not a correction.
 
 **Retirement freeze:** when `status` is `retired`, `latest_run` and
-`latest_run_date` MUST NOT change further — they remain at the values from
+`latest_run_date` MUST NOT change further - they remain at the values from
 the moment of retirement. `retired` is terminal: a retired parent MUST NOT
 be reactivated to `active` on `main`.
 
 **Retirement stops new runs:** a parent with `status: retired` MUST NOT
 gain additional run files. Retirement does not alter existing run history,
-IDs, `previous_run` chains, or the Latest-findings transclusion — it only
+IDs, `previous_run` chains, or the Latest-findings transclusion - it only
 forecloses future runs and freezes the two pointer fields above.
 
-### 5.2 Body — required structure
+Because retirement also forecloses new runs, the freeze can never put the two
+pointers out of agreement with the run files; invariant 4 therefore holds
+unconditionally, retired or not.
+
+For a parent with no runs, both the freeze and the transclusion rules apply
+vacuously: there are no pointer fields to freeze and no run to transclude, and
+retiring such a parent leaves it permanently run-less.
+
+### 5.2 Body - required structure
 
 ```markdown
-# BSL-001 — <task name>
+# BSL-001 - <task name>
 
 ## Why
 <purpose / context>
@@ -174,23 +282,53 @@ forecloses future runs and freezes the two pointer fields above.
 ![[BSL-001.002#Outcome]]
 
 ## Run history
-- [[BSL-001.002]] — 2026-08-31
-- [[BSL-001.001]] — 2026-08-01
+- [[BSL-001.002]] - 2026-08-31
+- [[BSL-001.001]] - 2026-08-01
 ```
 
 Requirements:
 
-- Exactly one H1, of the exact form `# <PARENT-ID> — <task name>`.
+- Exactly one H1, of the exact form `# <PARENT-ID> - <task name>`, where the
+  separator is a space, a plain hyphen-minus, and a space.
 - Exactly the three H2 sections `## Why`, `## Latest findings`,
   `## Run history`, in this order. Additional H2+ sections MAY follow
   `## Run history`; none may be inserted between the three required ones.
 - `## Latest findings` contains exactly one line,
   `![[<latest_run>#Outcome]]`, where `<latest_run>` is the frontmatter
-  `latest_run` value.
+  `latest_run` value - or no lines at all when the parent has no runs.
 - `## Run history` contains exactly one line per run file present for this
-  parent, in the exact form `- [[<RUN-ID>]] — <run_date>` (em dash), sorted
-  by `run_number` **descending**. `<run_date>` matches that run's
-  frontmatter `run_date` exactly.
+  parent, in the exact form `- [[<RUN-ID>]] - <run_date>`, sorted by run
+  number **descending**, with no blank line inside the list. `<run_date>`
+  matches that run's frontmatter `run_date` exactly, unquoted here. When the
+  parent has no runs, the section contains no lines.
+
+**Managed region and user region.** The parent card is co-owned. Every byte of
+the *managed region* is derived from the parent's run files and MUST be
+produced by rendering them; it MUST NOT be hand-maintained. The managed region
+is:
+
+- the `latest_run` and `latest_run_date` frontmatter lines, including whether
+  they are present at all and their position as the last two keys; and
+- the body from the `## Latest findings` heading line through the last line of
+  the `## Run history` section - that is, both headings, the transclusion line,
+  and the run-history lines, together with the single blank line between the
+  two sections.
+
+The *user region* is everything else: the `id`, `category`, `tags`, and
+`status` frontmatter lines; the `<task name>` in the H1; the whole body of
+`## Why`; and every H2+ section after `## Run history`, with its body.
+
+The managed region is empty of content, though not of its two headings, when
+the parent has no runs. Tooling MUST re-render the managed region in full from
+the run files and MUST NOT patch it in place; a validator checks it by
+re-rendering the whole card from its user region plus the run files and
+comparing bytes. That single equality check subsumes the `latest_run`,
+`latest_run_date`, Latest-findings and Run-history rules above, and invariant 4
+of Section 7 as it applies to the parent. It does NOT subsume invariants 1 or 2:
+the re-render derives the managed region *from* the run files, so a broken
+`previous_run` chain or a gap in the run numbers is reproduced faithfully rather
+than detected. Those two MUST be checked separately, against the run files
+themselves.
 
 ---
 
@@ -202,95 +340,117 @@ Requirements:
 ---
 id: BSL-001.002
 parent: BSL-001
-run_number: 2
 run_date: "2026-08-31"
-previous_run: BSL-001.001   # REQUIRED unless run_number == 1
-status: complete
+previous_run: BSL-001.001   # REQUIRED unless the run number is 1
+status: open
 ---
 ```
 
-`previous_run` MUST be present for every run except the one with
-`run_number: 1`, and MUST be absent for that one.
+`id`, `parent`, `run_date`, and `status` are REQUIRED, in that order.
+`previous_run` is conditional: it MUST be present, between `run_date` and
+`status`, for every run except run `001`, and MUST be absent for run `001`.
+`run_number` MUST NOT appear (Section 4).
+
+**Status lifecycle.** A run is created with `status: open`, meaning the
+execution is underway and its `## Outcome` is not yet written. Status advances
+along the chain `open -> complete -> void`. Each step is one-way and no step
+may be skipped. `complete` asserts that the run finished and its Outcome
+records what it found; **only a human sets `complete`**, and tooling MUST NOT
+write it, because tooling cannot know that a finding exists.
+
+**At most one `open` run per parent.** A run is a single execution; it is
+finished before the next is started. Creating a second run while one is still
+`open` is a violation (Section 7, invariant 5).
 
 **No forward pointer.** Run frontmatter deliberately has no `next_run`
 field. A forward pointer on run *N* would have to be written when run
-*N+1* is created — after run *N* is already merged to `main` — which is
-exactly the kind of post-merge field mutation Section 7 (invariant 10)
-forbids. Forward traversal (oldest → newest) is done by sorting a parent's
-runs by `run_number`, not by chain-walking; that sort is cheap and requires
+*N+1* is created - after run *N* is already merged to `main` - which is
+exactly the kind of post-merge field mutation Section 7 (invariant 9)
+forbids. Forward traversal (oldest to newest) is done by sorting a parent's
+runs by run number, not by chain-walking; that sort is cheap and requires
 no mutation of merged files.
 
 **Void runs:** a run that reached `main` in error MUST NOT be deleted,
 renamed, or renumbered. Instead, on `main`, exactly one field MAY change
-after merge: `status`, from `complete` to `void` (one-way). No other field
-(`id`, `parent`, `run_number`, `run_date`, `previous_run`) may ever change
-post-merge. The run's `## Outcome` body text MAY receive an appended
-explanation but the heading and prior content MUST NOT be altered or
-removed. A `void` run remains part of the `previous_run` chain and remains
-eligible to be `latest_run` (Section 5.1).
+after merge: `status`, advancing along the chain above. No other field
+(`id`, `parent`, `run_date`, `previous_run`) may ever change post-merge, and
+the file's number, being its filename, cannot change at all. The run's
+`## Outcome` body text MAY receive an appended explanation but the heading and
+prior content MUST NOT be altered or removed. A `void` run remains part of the
+`previous_run` chain and remains eligible to be `latest_run` (Section 5.1).
 
-### 6.2 Body — required structure
+### 6.2 Body - required structure
 
 ```markdown
 Part of: [[BSL-001]]
-← [[BSL-001.001]]
+Previous: [[BSL-001.001]]
 
 ## Outcome
 <findings from this run>
 ```
 
-- First line MUST be exactly `Part of: [[<parent>]]`.
-- Second line MUST be exactly `← [[<previous_run>]]` for every run except
-  `run_number: 1`, which MUST omit this line entirely (no empty placeholder).
+- The first non-empty line MUST be exactly `Part of: [[<parent>]]`. Whether a
+  blank line separates it from the closing frontmatter fence is not left to
+  chance: Section 3.1 requires exactly one.
+- The line immediately after it MUST be exactly `Previous: [[<previous_run>]]`
+  for every run except run `001`, which MUST omit this line entirely (no empty
+  placeholder). The two lines form one block with no blank line between them.
 - Exactly one `## Outcome` heading MUST exist; this exact heading text is
   the transclusion anchor the parent's Latest-findings section depends on
   and MUST NOT be changed. Additional H2+ sections MAY follow `## Outcome`.
+- The `## Outcome` body of an `open` run MAY be empty.
 
 ---
 
 ## 7. Cross-File and Repository Invariants
 
-These MUST hold for every parent directory on `main`:
+Invariants 1-5 MUST hold for every parent directory on `main`; invariant 6 is
+vault-wide, as is the filename-uniqueness rule of Section 2.1 that it depends
+on. Invariants 7-10 are properties of `main`'s history rather than of any one
+tree (Section 8.2):
 
-1. **Chain integrity.** Sort the parent's run files by `run_number`
-   ascending. The run with `run_number: 1` has no `previous_run`. Every
-   other run's `previous_run` equals the ID of the immediately preceding
-   run in that sort — no skips, no forward references, no references to
-   another parent, itself, or a nonexistent run.
-2. **Numbering contiguity.** `run_number` values for a parent are exactly
-   `1..N` with no gaps (Section 2.2); parent numbers within a category are
-   exactly `1..M` with no gaps.
+1. **Chain integrity.** Sort the parent's run files by their filename-derived
+   run number ascending. Run `001` has no `previous_run`. Every other run's
+   `previous_run` equals the ID of the immediately preceding run in that sort
+   - no skips, no forward references, no references to another parent, to
+   itself, or to a nonexistent run. A parent with no run files satisfies this
+   vacuously.
+2. **Numbering contiguity.** The run numbers present in a parent directory,
+   read from the run filenames, are exactly `1..N` with no gaps and no
+   duplicates; `N` MAY be 0. The parent numbers present in a category
+   directory are exactly `1..M` with no gaps; `M` MAY be 0 (Section 2.2).
 3. **`category` / `parent` consistency.** A run's `parent` field, its path,
    and the prefix of its own `id` all agree; a parent's `category` field
    equals the prefix of its own `id` and equals the Section 2.1 code for its
    containing directory.
-4. **`run_number` / filename agreement.** A run's `run_number` equals the
-   numeric suffix of its own filename.
-5. **`latest_run` agreement.** The parent's `latest_run` equals the run
-   with the greatest `run_number` in its directory; `latest_run_date`
-   equals that run's `run_date` (subject to the retirement freeze, §5.1).
-6. **Every parent has ≥ 1 run.** A parent directory with zero run files is
-   invalid.
-7. **Reference direction.** Any link to a task from outside its own parent
-   directory (external notes, other cards' bodies) MUST target the parent
-   index (`[[<PARENT-ID>]]`), not an individual run. Links *within* a
-   parent's own files (predecessor link, run-history list, latest-findings
-   transclusion) MUST target run files as specified in Sections 5–6; this
-   is not a violation of the external-reference rule.
+4. **`latest_run` agreement.** If the parent directory contains at least one
+   run file, the parent's `latest_run` equals the run with the greatest run
+   number in that directory and `latest_run_date` equals that run's
+   `run_date`. If it contains none, both keys are absent (Section 5.1).
+5. **At most one `open` run.** A parent directory contains no more than one
+   run file with `status: open` (Section 6.1).
+6. **Reference direction.** A link in a card file that targets a task other
+   than the one whose directory the file lives in MUST target that task's
+   parent index (`[[<PARENT-ID>]]`), never one of its runs. Links within a
+   parent's own files - the `Previous:` line, the run-history list, the
+   latest-findings transclusion, and prose references to sibling runs - MUST
+   target run files as specified in Sections 5 and 6; that is not a violation
+   of this rule.
 
 **Repository history invariants (main-transition only, not visible in a
 single-tree snapshot):**
 
-8. No parent or run number, once it has existed on `main`, is ever reused
+7. No parent or run number, once it has existed on `main`, is ever reused
    for a different card.
-9. No card file, once merged to `main`, is ever deleted, renamed, or moved.
-10. On `main`, no field of a merged run changes except `status`
-    (`complete → void`, one-way) and an appended (not replacing) addition
-    under `## Outcome`. No field of a merged parent changes except
-    `status` (`active → retired`, one-way) and, only up to the moment of
-    retirement, `latest_run`/`latest_run_date` advancing to a newly added
-    run.
-11. `retired` never reverts to `active` on `main`.
+8. No card file, once merged to `main`, is ever deleted, renamed, or moved.
+9. On `main`, no field of a merged run changes except `status`, advancing one
+   step at a time along `open -> complete -> void` (Section 6.1), plus an
+   appended (not replacing) addition under `## Outcome`. No field of a merged
+   parent changes except `status` (`active -> retired`, one-way) and, only up
+   to the moment of retirement, `latest_run`/`latest_run_date` advancing to a
+   newly added run. The parent's managed body sections (Section 5.2) change
+   only as a consequence of a run file being added.
+10. `retired` never reverts to `active` on `main`.
 
 ---
 
@@ -300,13 +460,19 @@ A conforming validator MUST implement two modes:
 
 ### 8.1 Snapshot validation
 
-Given the current `task-cards/` tree, check Sections 3–6 and invariants 1–7 of
-Section 7. This requires no Git history — only the files currently present.
+Given the current vault tree, check Sections 3-6 and invariants 1-6 of
+Section 7. This requires no Git history - only the files currently present.
+Sections 5.2 and 6.2 are checked by parsing each card, re-rendering it
+from its user region plus the run files present, and comparing bytes. Section
+3.1 MUST be checked directly over the whole file, independently of that
+comparison: the user region is copied verbatim into the re-render, so a CRLF,
+a non-ASCII byte or a missing trailing newline inside it would appear in both
+sides of the comparison and survive it.
 
 ### 8.2 Main-transition validation
 
 Given a proposed change (a merge/commit) and the preceding state of `main`,
-additionally check invariants 8–11 of Section 7: nothing was deleted,
+additionally check invariants 7-10 of Section 7: nothing was deleted,
 renamed, moved, renumbered, or reused, and merged-run/merged-parent field
 mutations are limited to the permitted one-way transitions.
 

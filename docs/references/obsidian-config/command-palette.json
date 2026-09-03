@@ -1,0 +1,10 @@
+{
+  "pinned": [
+    "editor:insert-table",
+    "editor:insert-callout",
+    "editor:insert-footnote",
+    "editor:attach-file",
+    "workspace:split-vertical",
+    "workspace:split-horizontal"
+  ]
+}

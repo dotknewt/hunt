@@ -827,3 +827,55 @@ def test_new_rejects_a_malformed_cadence(vault, cadence):
     assert result.returncode == 2
     assert "invalid cadence" in result.stderr
     assert not card(vault, "HNT-001.md").exists()
+
+
+# --- transition validation ----------------------------------------------------
+
+
+def test_validate_against_head_is_clean_for_an_untouched_vault(vault):
+    assert hunt(vault, "init").returncode == 0
+    assert hunt(vault, "new", "-c", "h", "--name", NAME).returncode == 0
+    assert hunt(vault, "run", "--id", "HNT-001", "--date", DATE1).returncode == 0
+
+    result = hunt(vault, "validate", "--against", "HEAD")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout == ""
+
+
+def test_validate_against_head_rejects_a_deleted_card(vault):
+    assert hunt(vault, "init").returncode == 0
+    assert hunt(vault, "new", "-c", "h", "--name", NAME).returncode == 0
+    assert hunt(vault, "run", "--id", "HNT-001", "--date", DATE1).returncode == 0
+    card(vault, "HNT-001.001.md").unlink()
+
+    result = hunt(vault, "validate", "--against", "HEAD")
+    assert result.returncode == 1
+    assert "transition.card-deleted" in result.stdout
+
+
+def test_validate_against_head_rejects_a_reused_number(vault):
+    assert hunt(vault, "init").returncode == 0
+    assert hunt(vault, "new", "-c", "h", "--name", NAME).returncode == 0
+    path = card(vault, "HNT-001.md")
+    path.write_text(
+        path.read_text().replace(f"# HNT-001 - {NAME}", "# HNT-001 - Another task"),
+        encoding="utf-8",
+    )
+
+    result = hunt(vault, "validate", "--against", "HEAD")
+    assert result.returncode == 1
+    assert "transition.number-reused" in result.stdout
+
+
+def test_validate_against_an_unknown_revision_says_so(vault):
+    assert hunt(vault, "init").returncode == 0
+    result = hunt(vault, "validate", "--against", "no-such-branch")
+    assert result.returncode == 1
+    assert "unknown revision: no-such-branch" in result.stderr
+
+
+def test_validate_refuses_id_and_against_together(vault):
+    assert hunt(vault, "init").returncode == 0
+    result = hunt(vault, "validate", "--id", "HNT-001", "--against", "HEAD")
+    assert result.returncode == 2
+    assert "not allowed with" in result.stderr

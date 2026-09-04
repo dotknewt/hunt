@@ -18,7 +18,7 @@ from .config import (
     require_configured,
     write_config,
 )
-from .validate import validate_parent_dir, validate_vault
+from .validate import validate_parent_dir, validate_transition, validate_vault
 from .vault import VaultError
 
 
@@ -272,7 +272,14 @@ def cmd_validate(args, today):
         raise VaultError("vault does not exist: %s" % config.vault_path)
     if not vault.is_repo(config.vault_path):
         raise VaultError("vault is not a git repository: %s" % config.vault_path)
-    if args.id is None:
+    if args.against is not None:
+        # Resolve first so a typo is an error, not an all-clear against a tree
+        # git never found. The user's spelling is what the findings quote.
+        vault.resolve_revision(config.vault_path, args.against)
+        findings = validate_vault(config.vault_path) + validate_transition(
+            config.vault_path, args.against
+        )
+    elif args.id is None:
         findings = validate_vault(config.vault_path)
     elif cards.is_valid_parent_id(args.id):
         findings = validate_parent_dir(config.vault_path, args.id)
@@ -396,8 +403,17 @@ def build_parser():
     run.set_defaults(func=cmd_run)
 
     validate = subparsers.add_parser("validate", help="validate the vault")
-    validate.add_argument(
+    # Mutually exclusive: --id narrows to one card, --against widens to a whole
+    # tree comparison. Asking for both is a mistake worth reporting.
+    scope_of_run = validate.add_mutually_exclusive_group()
+    scope_of_run.add_argument(
         "--id", type=_card_id, metavar="<ID>", help="restrict findings to one card"
+    )
+    scope_of_run.add_argument(
+        "--against",
+        metavar="<rev>",
+        help="also check the transition from a git revision, e.g. origin/main "
+        "(card-spec 8.2)",
     )
     validate.set_defaults(func=cmd_validate)
 

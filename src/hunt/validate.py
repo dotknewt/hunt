@@ -900,3 +900,226 @@ def _ordered(findings):
         return (str(finding.path), finding.code, finding.message)
 
     return sorted(findings, key=key)
+
+
+# --- transition validation (card-spec 8.2) -----------------------------------
+
+# 8.2 is 8.1 plus invariants 7-10 of Section 7: what a proposed tree may do to
+# the accepted tree it would replace. None of those are visible in a single
+# tree, which is why validate_vault cannot report any of them.
+_RUN_STATUS_ORDER = {status: index for index, status in enumerate(cards.RUN_STATUSES)}
+
+
+def validate_transition(vault_path, revision):
+    """Findings for the working tree, read as a proposed tree, against the
+    accepted tree recorded at `revision`. Snapshot findings are not repeated
+    here; the CLI runs validate_vault as well."""
+    vault = Path(vault_path)
+    findings = []
+    accepted = _revision_cards(vault, revision)
+    proposed = _tree_cards(vault)
+    for name in sorted(accepted):
+        path = vault / name
+        if name not in proposed:
+            findings.append(
+                Finding(
+                    path,
+                    "transition.card-deleted",
+                    f"{name} is recorded at {revision} but not in the tree under "
+                    "review; an accepted card is never deleted, renamed, or moved",
+                )
+            )
+            continue
+        is_index = name.rsplit("/", 1)[1][:-3] == name.split("/")[1]
+        try:
+            if is_index:
+                before = cards.parse_parent(accepted[name])
+                after = cards.parse_parent(proposed[name])
+            else:
+                before = cards.parse_run(accepted[name])
+                after = cards.parse_run(proposed[name])
+        except cards.CardError:
+            # A card that does not parse is already a snapshot finding.
+            continue
+        if is_index:
+            _check_parent_transition(path, revision, before, after, findings)
+        else:
+            _check_run_transition(path, revision, before, after, findings)
+    return _ordered(findings)
+
+
+def _revision_cards(vault, revision):
+    """{vault-relative path: text} for the card files a revision records."""
+    accepted = {}
+    for name, data in vaultmod.tracked_blobs(vault, revision):
+        if not _is_card_name(name):
+            continue
+        try:
+            accepted[name] = data.decode("utf-8")
+        except UnicodeDecodeError:
+            continue
+    return accepted
+
+
+def _tree_cards(vault):
+    """The same mapping for the working tree. Symlinks are skipped: a
+    comparison must not follow one out of the vault."""
+    proposed = {}
+    for directory in sorted(cards.DIRECTORIES):
+        category = vault / directory
+        if not category.is_dir() or category.is_symlink():
+            continue
+        for parent_dir in sorted(category.iterdir()):
+            if not parent_dir.is_dir() or parent_dir.is_symlink():
+                continue
+            for path in sorted(parent_dir.glob("*.md")):
+                if path.is_symlink() or not path.is_file():
+                    continue
+                name = f"{directory}/{parent_dir.name}/{path.name}"
+                if not _is_card_name(name):
+                    continue
+                try:
+                    proposed[name] = cards.read_card(path)
+                except cards.CardError:
+                    continue
+    return proposed
+
+
+def _is_card_name(name):
+    """<category dir>/<PARENT>/<PARENT>.md or <PARENT>.<NNN>.md, and nothing
+    else: only those are cards, and only cards carry invariants."""
+    parts = name.split("/")
+    if len(parts) != 3 or parts[0] not in cards.DIRECTORIES:
+        return False
+    if not parts[2].endswith(".md"):
+        return False
+    stem = parts[2][:-3]
+    if stem == parts[1]:
+        return cards.is_valid_parent_id(stem)
+    return cards.is_valid_run_id(stem) and stem.split(".")[0] == parts[1]
+
+
+def _check_parent_transition(path, revision, before, after, findings):
+    """card-spec 7, invariants 7, 9 and 10 for one parent index card."""
+    if after.name != before.name:
+        findings.append(
+            Finding(
+                path,
+                "transition.number-reused",
+                f"{before.id} names a different task than the one accepted at "
+                f"{revision} ({_show(before.name)} -> {_show(after.name)}); an "
+                "accepted number is never reused",
+            )
+        )
+    if after.tags != before.tags:
+        findings.append(
+            Finding(
+                path,
+                "transition.field-changed",
+                f"tags changed since {revision}; on an accepted parent only "
+                "status, cadence and the latest_run pair may change",
+            )
+        )
+    if after.category != before.category:
+        findings.append(
+            Finding(
+                path,
+                "transition.field-changed",
+                f"category changed since {revision}; on an accepted parent only "
+                "status, cadence and the latest_run pair may change",
+            )
+        )
+    if before.status == cards.STATUS_RETIRED and after.status == cards.STATUS_ACTIVE:
+        findings.append(
+            Finding(
+                path,
+                "transition.status-reverted",
+                f"status went from retired back to active since {revision}; "
+                "retirement is one-way",
+            )
+        )
+    if before.status == cards.STATUS_RETIRED and (
+        after.latest_run != before.latest_run
+        or after.latest_run_date != before.latest_run_date
+    ):
+        findings.append(
+            Finding(
+                path,
+                "transition.retirement-freeze-broken",
+                f"latest_run or latest_run_date changed on a card already retired "
+                f"at {revision}; retirement freezes both",
+            )
+        )
+    if before.latest_run is not None and after.latest_run is None:
+        findings.append(
+            Finding(
+                path,
+                "transition.field-changed",
+                f"latest_run was removed since {revision}; it only ever advances "
+                "to a newly added run",
+            )
+        )
+    elif (
+        before.latest_run is not None
+        and after.latest_run is not None
+        and _run_number(after.latest_run) < _run_number(before.latest_run)
+    ):
+        findings.append(
+            Finding(
+                path,
+                "transition.field-changed",
+                f"latest_run moved back from {before.latest_run} to "
+                f"{after.latest_run} since {revision}; it only ever advances",
+            )
+        )
+
+
+def _check_run_transition(path, revision, before, after, findings):
+    """card-spec 7, invariant 9 for one run card: only status advances, and the
+    Outcome may only be appended to."""
+    for field, was, now in (
+        ("id", before.id, after.id),
+        ("parent", before.parent, after.parent),
+        ("run_date", before.run_date, after.run_date),
+        ("previous_run", before.previous_run, after.previous_run),
+        ("scope", before.scope, after.scope),
+    ):
+        if now != was:
+            findings.append(
+                Finding(
+                    path,
+                    "transition.field-changed",
+                    f"{field} changed since {revision} ({_show(was)} -> "
+                    f"{_show(now)}); on an accepted run only status may change",
+                )
+            )
+    was = _RUN_STATUS_ORDER.get(before.status)
+    now = _RUN_STATUS_ORDER.get(after.status)
+    if was is not None and now is not None and now not in (was, was + 1):
+        findings.append(
+            Finding(
+                path,
+                "transition.bad-status-transition",
+                f"status went from {before.status} to {after.status} since "
+                f"{revision}; it advances one step along "
+                + " -> ".join(cards.RUN_STATUSES),
+            )
+        )
+    if not after.outcome.startswith(before.outcome):
+        findings.append(
+            Finding(
+                path,
+                "transition.outcome-changed",
+                f"the Outcome accepted at {revision} was rewritten rather than "
+                "appended to",
+            )
+        )
+
+
+def _run_number(value):
+    """The run number in an id, or 0 when it is not a run id at all (which is a
+    snapshot finding, not this function's business)."""
+    try:
+        return cards.parse_run_id(value).number
+    except cards.CardError:
+        return 0

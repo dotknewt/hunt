@@ -130,6 +130,33 @@ def test_rewriting_an_accepted_outcome_is_reported(accepted):
     assert "transition.outcome-changed" in codes(accepted)
 
 
+def test_adding_a_section_after_an_accepted_outcome_is_reported(accepted):
+    path = accepted.path / BSL_RUN2
+    text = path.read_text(encoding="utf-8")
+    path.write_text(text + "\n## Notes\nAdded after acceptance.\n", encoding="utf-8")
+    assert "transition.body-changed" in codes(accepted)
+
+
+def test_editing_a_section_after_an_accepted_outcome_is_reported(accepted):
+    path = accepted.path / BSL_RUN2
+    text = path.read_text(encoding="utf-8")
+    path.write_text(text + "\n## Notes\nFirst version.\n", encoding="utf-8")
+    accepted.git("add", "-A")
+    accepted.git("commit", "-q", "-m", "accepted with notes")
+    edit(accepted, BSL_RUN2, "First version.", "Second version.")
+    assert codes(accepted) == ["transition.body-changed"]
+
+
+def test_an_outcome_append_leaves_later_sections_untouched(accepted):
+    path = accepted.path / BSL_RUN2
+    text = path.read_text(encoding="utf-8")
+    path.write_text(text + "\n## Notes\nKept.\n", encoding="utf-8")
+    accepted.git("add", "-A")
+    accepted.git("commit", "-q", "-m", "accepted with notes")
+    edit(accepted, BSL_RUN2, "\n## Notes\n", "One more line.\n\n## Notes\n")
+    assert validate_transition(accepted.path, "HEAD") == []
+
+
 def test_changing_parent_tags_is_reported(accepted):
     edit(accepted, BSL, "tags: [dns, baseline, example]", "tags: [dns]")
     assert "transition.field-changed" in codes(accepted)

@@ -300,7 +300,7 @@ Pipeline helpers
   `_check_parent_transition`, `_check_run_transition`, `_run_number`. Finding
   family `transition.*`: `card-deleted`, `number-reused`, `field-changed`,
   `status-reverted`, `bad-status-transition`, `retirement-freeze-broken`,
-  `outcome-changed`.
+  `outcome-changed`, `body-changed`.
 - `_check_links`: aliases forbidden; links must point at the parent or a
   sibling run in the allowed direction.
 - `_parse`, `_render`, `_compare` (reports the first differing line as

@@ -1,6 +1,6 @@
 # Recurring Task-Card Schema (Obsidian, plain-text Markdown)
 
-**Version:** 7
+**Version:** 8
 **Status:** normative schema and validation contract.
 **Scope:** card format, cross-file invariants, and the rules a validator MUST
 enforce, over a tree of card files rooted at a *card root*. Where that root
@@ -10,7 +10,10 @@ no path outside the card tree and no version-control system. Tool
 implementation, CI wiring, and a stats layer are not specified here; their
 *absence* does not weaken any rule below. Every rule below is enforceable today
 by manual inspection and MUST be enforced by code once a validator exists.
-**Changelog:** v7 widens the optional run-card field `scope` (Sections 4 and
+**Changelog:** v8 freezes the whole body of an accepted run card (Section 6.1
+and invariant 9 of Section 7): every section after `## Outcome` is as immutable
+as the frontmatter, and the only permitted body change remains an appended
+addition under `## Outcome`. v7 widens the optional run-card field `scope` (Sections 4 and
 6.1) from a single quoted string to a flow sequence of one or more quoted
 strings, written `scope: ["windows", "servers"]`. Each item obeys the shape v5
 gave the scalar; the sequence MUST NOT be empty, and the way to record no scope
@@ -451,7 +454,9 @@ accepted: `status`, advancing along the chain above. No other field (`id`,
 `parent`, `run_date`, `previous_run`) may ever change thereafter, and the
 file's number, being its filename, cannot change at all. The run's
 `## Outcome` body text MAY receive an appended explanation but the heading and
-prior content MUST NOT be altered or removed. A `void` run remains part of the
+prior content MUST NOT be altered or removed, and any section after
+`## Outcome` MUST NOT be added, removed, or edited (invariant 9, Section 7).
+A `void` run remains part of the
 `previous_run` chain and remains eligible to be `latest_run` (Section 5.1).
 
 ### 6.2 Body - required structure
@@ -520,8 +525,11 @@ each invariant constrains what the proposed tree that would replace it may do:
 7. No parent or run number, once accepted, is ever reused for a different card.
 8. No accepted card file is ever deleted, renamed, or moved.
 9. No field of an accepted run card changes, except `status`, advancing one
-   step at a time along `open -> complete -> void` (Section 6.1), plus an
-   appended (not replacing) addition under `## Outcome`. No field of an
+   step at a time along `open -> complete -> void` (Section 6.1). The only
+   body change on an accepted run is an appended (not replacing) addition
+   under `## Outcome`; every section after `## Outcome` is frozen exactly as
+   the frontmatter is, so a section is never added, removed, or edited
+   there once the run is accepted. No field of an
    accepted parent card changes, except `status` (`active -> retired`,
    one-way), `cadence` (freely, to any other value satisfying Section 4, or
    removed), and, only up to the moment of retirement, `latest_run`/

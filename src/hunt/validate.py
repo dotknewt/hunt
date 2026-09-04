@@ -1080,8 +1080,8 @@ def _check_parent_transition(path, revision, before, after):
 
 
 def _check_run_transition(path, revision, before, after):
-    """card-spec 7, invariant 9 for one run card: only status advances, and the
-    Outcome may only be appended to."""
+    """card-spec 7, invariant 9 for one run card: only status advances, the
+    Outcome may only be appended to, and the rest of the body is frozen."""
     findings = []
     for field, was, now in (
         ("id", before.id, after.id),
@@ -1118,6 +1118,15 @@ def _check_run_transition(path, revision, before, after):
                 "transition.outcome-changed",
                 f"the Outcome accepted at {revision} was rewritten rather than "
                 "appended to",
+            )
+        )
+    if after.extra != before.extra:
+        findings.append(
+            Finding(
+                path,
+                "transition.body-changed",
+                f"a section after the Outcome changed since {revision}; the body "
+                "of an accepted run is frozen apart from Outcome appends",
             )
         )
     return findings

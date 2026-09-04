@@ -40,8 +40,8 @@ def test_an_unchanged_tree_is_clean(accepted):
 
 
 def test_adding_a_card_is_not_a_finding(accepted):
-    """Invariants 7-10 constrain what the accepted tree already holds; a new
-    parent, and a new run under an existing one, are the normal case."""
+    """Invariants 7-10 constrain what the accepted tree already holds; a brand
+    new parent with no runs yet is the normal case."""
     (accepted.path / "hunt/HNT-002").mkdir()
     (accepted.path / "hunt/HNT-002/HNT-002.md").write_text(
         "---\nid: HNT-002\ncategory: HNT\ntags: [hunt]\nstatus: active\n---\n\n"
@@ -49,6 +49,22 @@ def test_adding_a_card_is_not_a_finding(accepted):
         "## Run history\n",
         encoding="utf-8",
     )
+    assert validate_transition(accepted.path, "HEAD") == []
+
+
+def test_a_new_run_advancing_latest_run_is_not_a_finding(accepted):
+    """The other normal case: a new run added under an existing parent, with
+    the parent's latest_run and latest_run_date advanced to match. This is the
+    transition every real PR against a vault performs."""
+    (accepted.path / "baseline/BSL-001/BSL-001.003.md").write_text(
+        "---\nid: BSL-001.003\nparent: BSL-001\nrun_date: \"2026-09-30\"\n"
+        "previous_run: BSL-001.002\nstatus: complete\n---\n\n"
+        "Part of: [[BSL-001]]\nPrevious: [[BSL-001.002]]\n\n"
+        "## Outcome\nNo deviations from the established baseline this cycle.\n",
+        encoding="utf-8",
+    )
+    edit(accepted, BSL, "latest_run: BSL-001.002", "latest_run: BSL-001.003")
+    edit(accepted, BSL, 'latest_run_date: "2026-08-31"', 'latest_run_date: "2026-09-30"')
     assert validate_transition(accepted.path, "HEAD") == []
 
 

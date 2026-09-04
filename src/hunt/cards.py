@@ -488,6 +488,11 @@ def new_parent(parent, name, tags=(), why="", cadence=None):
     for tag in tags:
         if not is_valid_tag(tag):
             raise CardError(f"{tag!r} is not a valid tag", "FM-BAD-TAG")
+    # Every task is at least its category, and the tag is the directory name:
+    # card-spec 4 requires ^[a-z0-9][a-z0-9_-]*$, which the code (BSL) is not.
+    category_tag = CATEGORIES[ident.category]
+    if category_tag not in tags:
+        tags.insert(0, category_tag)
     if cadence is not None and not is_valid_cadence(cadence):
         raise CardError(f"{cadence!r} is not a valid cadence", "FM-BAD-CADENCE")
     frontmatter = {

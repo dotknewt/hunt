@@ -12,7 +12,7 @@ PARENTS = ("baseline/BSL-001", "hunt/HNT-001", "math/MTH-001")
 PARENT_NO_RUNS = """---
 id: BSL-002
 category: BSL
-tags: []
+tags: [baseline]
 status: active
 ---
 
@@ -430,3 +430,37 @@ def test_a_malformed_cadence_in_an_existing_card_is_rejected_on_parse():
     text = cards.render_parent(cards.new_parent("BSL-002", "A task", cadence=30), [])
     with pytest.raises(CardError):
         cards.parse_parent(text.replace("cadence: 30", "cadence: -1"))
+
+
+# --- default category tag -----------------------------------------------------
+
+
+def test_a_new_parent_is_tagged_with_its_category():
+    """The category directory name is the tag: card-spec 4 requires a tag to
+    match ^[a-z0-9][a-z0-9_-]*$, which the uppercase code cannot."""
+    parent = cards.new_parent("HNT-001", "A hunt")
+    assert parent.tags == ["hunt"]
+    assert "tags: [hunt]\n" in cards.render_parent(parent, [])
+
+
+def test_the_category_tag_is_added_for_every_category():
+    assert cards.new_parent("BSL-001", "A baseline").tags == ["baseline"]
+    assert cards.new_parent("HNT-001", "A hunt").tags == ["hunt"]
+    assert cards.new_parent("MTH-001", "Some math").tags == ["math"]
+
+
+def test_the_category_tag_comes_first_and_keeps_the_given_tags():
+    parent = cards.new_parent("HNT-001", "A hunt", ["dns", "example"])
+    assert parent.tags == ["hunt", "dns", "example"]
+
+
+def test_the_category_tag_is_not_duplicated():
+    parent = cards.new_parent("HNT-001", "A hunt", ["dns", "hunt"])
+    assert parent.tags == ["dns", "hunt"]
+
+
+def test_a_new_parent_card_round_trips_with_its_category_tag():
+    parent = cards.new_parent("MTH-001", "Some math")
+    text = cards.render_parent(parent, [])
+    assert cards.parse_parent(text).tags == ["math"]
+    assert cards.render_parent(cards.parse_parent(text), []) == text

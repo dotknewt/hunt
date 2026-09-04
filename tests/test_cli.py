@@ -169,7 +169,7 @@ def test_lifecycle(vault):
     front, _ = split_card(text)
     assert "id: HNT-001" in front
     assert "category: HNT" in front
-    assert "tags: []" in front
+    assert "tags: [hunt]" in front, "a new parent is tagged with its category"
     assert "status: active" in front
     assert not [line for line in front if line.startswith("latest_run")]
     assert headings(text) == [

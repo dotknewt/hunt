@@ -25,6 +25,8 @@ class VaultError(HuntError):
 
 
 def _git(vault: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+    """Run git inside `vault`, capturing text output. With check=True a
+    non-zero exit becomes a VaultError carrying git's own message."""
     try:
         proc = subprocess.run(
             ["git", "-C", str(vault), *args],
@@ -40,6 +42,7 @@ def _git(vault: Path, *args: str, check: bool = True) -> subprocess.CompletedPro
 
 
 def _head_branch(vault: Path) -> str | None:
+    """Name of the checked-out branch, or None on a detached HEAD."""
     proc = _git(vault, "symbolic-ref", "--quiet", "--short", "HEAD", check=False)
     if proc.returncode != 0:
         return None
@@ -57,6 +60,8 @@ def _has_commits(vault: Path) -> bool:
 
 
 def is_repo(vault: Path) -> bool:
+    """True only when `vault` is itself the top level of a repository, not
+    merely inside one."""
     vault = Path(vault)
     if not vault.is_dir():
         return False
@@ -164,6 +169,8 @@ def is_clean(vault: Path) -> bool:
 
 
 def contains_main(vault: Path, branch: str) -> bool:
+    """Whether `branch` has `main` in its history (exit 1 from merge-base
+    means "no", anything else is an error)."""
     proc = _git(Path(vault), "merge-base", "--is-ancestor", MAIN_BRANCH, branch, check=False)
     if proc.returncode == 0:
         return True
@@ -174,6 +181,9 @@ def contains_main(vault: Path, branch: str) -> bool:
 
 
 def ensure_writable(config: "Config") -> None:
+    """Preflight for every writing command (vault-spec 4/5): repo exists, the
+    configured branch exists, is checked out, is not main, the tree is clean
+    and the branch contains main. Raises VaultError on the first failure."""
     vault = Path(config.vault_path)
     branch = config.vault_branch
 
@@ -207,6 +217,8 @@ def ensure_writable(config: "Config") -> None:
 
 
 def safe_path(vault: Path, *parts: str) -> Path:
+    """Join `parts` onto the vault root, refusing absolute parts, "..", and any
+    symlink met along the way, so a write can never land outside the vault."""
     root = Path(vault)
     segments: list[str] = []
     for part in parts:
@@ -229,6 +241,8 @@ def safe_path(vault: Path, *parts: str) -> Path:
 
 
 def _relative(vault: Path, path: Path) -> str:
+    """Vault-relative posix form of `path` for git's command line; raises if
+    the path is outside the vault."""
     candidate = Path(path)
     if not candidate.is_absolute():
         # A relative path is still allowed to escape via "..", so resolve it

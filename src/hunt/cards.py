@@ -37,6 +37,7 @@ RUN_HISTORY = "Run history"
 OUTCOME = "Outcome"
 PARENT_SECTIONS = (WHY, LATEST_FINDINGS, RUN_HISTORY)
 
+# Alternation of the category codes ("BSL|HNT|MTH"), shared by the ID regexes.
 _CODES = "|".join(CATEGORIES)
 PARENT_RE = re.compile(rf"(?P<category>{_CODES})-(?P<number>[0-9]{{3}})")
 RUN_RE = re.compile(
@@ -49,14 +50,23 @@ TAG_RE = re.compile(r"[a-z0-9][a-z0-9_-]*")
 SCOPE_RE = re.compile(r'[ -!#-\[\]-~]+')
 DATE_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 
+# Frontmatter delimiter line. split_frontmatter relies on it ending in "\n".
 _FENCE = "---\n"
+# ATX headings of level 2..6; level 1 is the H1 and is handled separately.
 _HEADING_RE = re.compile(r"^(#{2,6}) (.+)$")
+# A top-level "key:" line of the frontmatter block, read textually so that key
+# order and duplicates can be checked (YAML loading loses both).
 _KEY_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_.-]*):(?: |$)")
+# Wikilinks: an aliased link "[[target|label]]" (forbidden in cards) and the
+# raw contents of any "[[...]]" link, alias, heading anchor and all.
 _ALIAS_RE = re.compile(r"\[\[[^\[\]|]*\|[^\[\]]*\]\]")
 _LINK_RE = re.compile(r"\[\[([^\[\]]+)\]\]")
 
 
 class CardError(HuntError):
+    """A malformed card or an allocation refusal. `code` is a short machine
+    identifier (e.g. FM-BAD-ID) that validate.py maps to a finding code."""
+
     def __init__(self, message, code=None):
         super().__init__(message)
         self.code = code
@@ -74,6 +84,11 @@ class RunId(NamedTuple):
 
 @dataclass
 class Parent:
+    """A parent (index) card. Frontmatter is kept raw; every property validates
+    on access and raises CardError, so a Parent can hold bad data until asked.
+    `extra` is any body text after the three mandated sections, preserved
+    verbatim by render_parent."""
+
     frontmatter: dict
     name: str = ""
     why: str = ""
@@ -122,6 +137,9 @@ class Parent:
 
 @dataclass
 class Run:
+    """A run card. Same lazy-validation shape as Parent; `outcome` is the body
+    of "## Outcome" and `extra` everything after it."""
+
     frontmatter: dict
     outcome: str = ""
     extra: str = ""
@@ -182,6 +200,9 @@ def _optional_date(frontmatter, key):
 
 
 def _date_text(value, key):
+    """Normalize a frontmatter date to text. YAML turns an unquoted
+    YYYY-MM-DD into a date object; that is tolerated here (validate.py reports
+    it separately as frontmatter.unquoted-date) so rendering still works."""
     if isinstance(value, datetime.datetime):
         return value.date().isoformat()
     if isinstance(value, datetime.date):
@@ -192,6 +213,7 @@ def _date_text(value, key):
 
 
 def _fields(card, keys):
+    """Touch each property so its validation runs; the values are discarded."""
     for key in keys:
         getattr(card, key)
 
@@ -251,6 +273,7 @@ def load_frontmatter(block):
 
 
 def find_links(text):
+    """Raw targets of every [[...]] link, including any "|alias" or "#anchor"."""
     return [raw for raw in _LINK_RE.findall(text)]
 
 
@@ -259,6 +282,8 @@ def find_alias_links(text):
 
 
 def resolve_category(value):
+    """Accept a code or directory name in any case ("bsl", "Baseline") and
+    return the canonical code, or raise CardError."""
     if isinstance(value, str):
         code = value.upper()
         if code in CATEGORIES:
@@ -330,6 +355,7 @@ def run_path(vault_path, run):
 
 
 def run_number_from_filename(path):
+    """The run number encoded in a run filename such as BSL-001.002.md."""
     name = Path(path).name
     match = RUN_RE.fullmatch(name[:-3]) if name.endswith(".md") else None
     if match is None:
@@ -341,6 +367,8 @@ def run_number_from_filename(path):
 
 
 def next_parent_number(vault_path, category_code):
+    """Next free parent number in a category (vault-spec 7). Refuses on a
+    case-only collision or a numbering gap instead of allocating."""
     code = resolve_category(category_code)
     directory = category_dir(vault_path, code)
     numbers = []
@@ -358,6 +386,7 @@ def next_parent_number(vault_path, category_code):
 
 
 def next_run_number(vault_path, parent):
+    """Next free run number under a parent; same refusals as next_parent_number."""
     numbers = [number for number, _ in _run_files(vault_path, parent)]
     directory = parent_dir(vault_path, parent)
     names = [e.name for e in directory.iterdir()] if directory.is_dir() else []
@@ -399,6 +428,8 @@ def _next_number(numbers, subject):
 
 
 def _run_files(vault_path, parent):
+    """(number, path) for every run file of `parent`, sorted by number.
+    Files that do not match the run pattern are ignored, not reported."""
     directory = parent_dir(vault_path, parent)
     found = []
     if directory.is_dir():
@@ -498,10 +529,14 @@ def _check_name(name):
 
 
 class _FrontmatterLoader(yaml.SafeLoader):
-    pass
+    """SafeLoader subclass so the duplicate-key constructor below applies only
+    to frontmatter, not to every yaml.load in the process."""
 
 
 def _construct_mapping(loader, node):
+    """PyYAML silently lets a later duplicate key win; card-spec forbids
+    duplicates, so raise instead. Keys are constructed once here only to
+    compare them, then the stock SafeConstructor builds the mapping."""
     loader.flatten_mapping(node)
     seen = set()
     for key_node, _ in node.value:
@@ -523,6 +558,8 @@ _FrontmatterLoader.add_constructor(
 
 
 def split_frontmatter(text):
+    """Return (frontmatter block, body) without the fences. The closing fence
+    is searched for as "\n---\n" so a "---" inside a value does not end it."""
     if not text.startswith(_FENCE):
         raise CardError("card does not open with a frontmatter fence", "FM-MISSING-FENCE")
     end = text.find("\n" + _FENCE, len(_FENCE) - 1)
@@ -532,6 +569,7 @@ def split_frontmatter(text):
 
 
 def frontmatter_key_order(text):
+    """Top-level keys as they appear textually, duplicates included."""
     block, _ = split_frontmatter(text)
     keys = []
     for line in block.split("\n"):
@@ -558,6 +596,9 @@ def _load_frontmatter(block):
 
 
 def parse_parent(text):
+    """Parse a parent card strictly per card-spec: frontmatter, exactly one H1
+    of the form "# ID - name", then "## Why", "## Latest findings",
+    "## Run history" in that order. Anything after those is kept as extra."""
     block, body = split_frontmatter(text)
     frontmatter = _load_frontmatter(block)
     card = Parent(frontmatter)
@@ -596,6 +637,9 @@ def parse_parent(text):
 
 
 def parse_run(text):
+    """Parse a run card: frontmatter, a "Part of: [[parent]]" line, an optional
+    "Previous: [[run]]" line that must agree with previous_run, then exactly
+    one "## Outcome"."""
     block, body = split_frontmatter(text)
     frontmatter = _load_frontmatter(block)
     card = Run(frontmatter)
@@ -635,6 +679,7 @@ def parse_run(text):
 
 
 def _first_content(lines):
+    """Index of the first non-blank line, or -1."""
     for index, line in enumerate(lines):
         if line.strip():
             return index
@@ -652,6 +697,7 @@ def _split_sections(lines):
 
 
 def _section_body(lines, sections, position):
+    """Text between the heading at `position` and the next heading."""
     start = sections[position][1] + 1
     if position + 1 < len(sections):
         end = sections[position + 1][1]
@@ -661,12 +707,17 @@ def _section_body(lines, sections, position):
 
 
 def _sections_from(lines, sections, position):
+    """Verbatim text from the heading at `position` to the end (the `extra`)."""
     if position >= len(sections):
         return ""
     return "\n".join(lines[sections[position][1]:])
 
 
 def render_parent(parent, runs):
+    """Canonical text of a parent card. `runs` is the ordered run list; the
+    latest run drives latest_run / latest_run_date and the findings embed,
+    and Run history lists newest first. validate.py compares a card byte for
+    byte against this output, so any change here changes what is valid."""
     runs = list(runs)
     keys = [
         f"id: {parent.id}",
@@ -696,6 +747,7 @@ def render_parent(parent, runs):
 
 
 def render_run(run):
+    """Canonical text of a run card; the inverse of parse_run."""
     keys = [
         f"id: {run.id}",
         f"parent: {run.parent}",

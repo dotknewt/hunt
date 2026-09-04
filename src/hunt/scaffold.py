@@ -148,6 +148,7 @@ TYPES = {
 
 
 def _json(value):
+    """Stable JSON: sorted keys, ASCII, trailing newline (LF rule)."""
     return json.dumps(value, indent=2, ensure_ascii=True, sort_keys=True) + "\n"
 
 
@@ -198,6 +199,8 @@ def scaffold(vault: Path, warn=None) -> list[Path]:
 
 
 def _ignored(vault: Path, name: str) -> bool:
+    """Does a .gitignore in the vault hide `name`? check-ignore exits 0 for
+    ignored, 1 for not ignored; anything else is a real failure."""
     proc = _git(vault, "check-ignore", "--quiet", "--no-index", "--", name, check=False)
     if proc.returncode in (0, 1):
         return proc.returncode == 0
@@ -206,6 +209,9 @@ def _ignored(vault: Path, name: str) -> bool:
 
 
 def _write(path: Path, text: str) -> None:
+    """Write scaffold bytes exactly; the content is trusted only if ASCII, LF
+    and newline-terminated, so a bad constant fails loudly instead of
+    producing a file validation would then reject."""
     if not text.isascii() or "\r" in text or not text.endswith("\n"):
         raise VaultError(f"refusing to write malformed scaffold content to {path}")
     with open(path, "wb") as handle:

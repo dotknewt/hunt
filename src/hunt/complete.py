@@ -38,6 +38,9 @@ def _quiet(default):
 
 @_quiet([])
 def categories():
+    """Every accepted category spelling (codes, aliases, directory names).
+    Imported lazily: cli imports this module, so a top-level import would be
+    circular."""
     from .cli import category_spellings
 
     return category_spellings()
@@ -45,6 +48,7 @@ def categories():
 
 @_quiet([])
 def parent_ids():
+    """Parent IDs found on disk in the configured vault, sorted."""
     config = load_config()
     if config.vault_path is None or not config.vault_path.is_dir():
         return []

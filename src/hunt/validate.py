@@ -13,8 +13,11 @@ from .vault import OS_ARTIFACTS, ROOT_FILES
 # constrain. Everything else at the root is the card tree or a violation.
 VAULT_DIRS = (".git", ".github", ".obsidian")
 
+# Longest quoted value a finding message will show before truncating.
 _QUOTE_LIMIT = 120
 
+# cards.CardError codes -> finding codes. Anything not listed here surfaces as
+# render.parse-error (see _card_error).
 _CARD_ERROR_CODES = {
     "FILE-NON-ASCII": "bytes.non-ascii",
     "LAYOUT-MISSING-INDEX": "path.missing-index",
@@ -44,6 +47,9 @@ _CARD_ERROR_CODES = {
 
 @dataclass(frozen=True)
 class Finding:
+    """One validation failure. `code` is dotted "<area>.<problem>" (bytes.*,
+    path.*, frontmatter.*, render.*, invariant.*) and is stable for scripts."""
+
     path: Path
     code: str
     message: str
@@ -54,6 +60,9 @@ class Finding:
 
 @dataclass
 class _ParentScan:
+    """What the directory walk found for one parent: its index card (may be
+    missing) and run files keyed by run number."""
+
     parent: str
     directory: Path
     index: Path = None
@@ -61,6 +70,9 @@ class _ParentScan:
 
 
 def validate_vault(vault_path):
+    """Every finding for the whole vault, sorted. Walks the root and category
+    directories, checks each parent, then the cross-cutting rules (stem
+    collisions, git attributes and committed bytes)."""
     vault = Path(vault_path)
     if not vault.is_dir():
         return [Finding(vault, "path.missing-vault", "the vault directory does not exist")]
@@ -167,6 +179,8 @@ def _check_git(vault, card_paths, findings):
 
 
 def validate_parent_dir(vault_path, parent_id):
+    """Findings for one parent directory only; used by `hunt new`/`hunt run`
+    before committing. Skips the vault-wide git checks (see _check_git)."""
     vault = Path(vault_path)
     directory = cards.parent_dir(vault, parent_id)
     if not directory.is_dir():
@@ -186,6 +200,8 @@ def _entries(directory):
 
 
 def _scan_category(directory, code, findings, stems):
+    """Walk one category directory; every well-named subdirectory becomes a
+    _ParentScan, everything else a path.* finding."""
     scans = []
     for entry in _entries(directory):
         if not entry.is_dir():
@@ -286,6 +302,7 @@ def _stray_file(entry, findings, stems):
 
 
 def _note_stem(stems, path):
+    """Record a .md file under its case-folded stem for _stem_collisions."""
     stems.setdefault(path.name[:-3].lower(), []).append(path)
 
 
@@ -323,6 +340,9 @@ def _check_parent_numbers(vault, code, scans, findings):
 
 
 def _check_parent(scan, findings):
+    """All per-parent checks. The index is re-rendered against the parsed runs,
+    so if any run failed to parse (`usable` false) the index render comparison
+    is skipped rather than reported as a spurious mismatch."""
     runs = []
     usable = True
     for number in sorted(scan.runs):
@@ -339,6 +359,8 @@ def _check_parent(scan, findings):
 
 
 def _check_run_file(path, parent, findings):
+    """bytes -> links -> frontmatter -> parse -> re-render, stopping at the
+    first stage that fails so later stages do not pile on derived noise."""
     text = _read_text(path, findings)
     if text is None:
         return None
@@ -371,6 +393,7 @@ def _check_index_file(scan, runs, findings):
 
 
 def _read_text(path, findings):
+    """Decode a card, or return None after recording byte-level findings."""
     data = path.read_bytes()
     before = len(findings)
     _check_bytes(path, data, findings)
@@ -380,6 +403,9 @@ def _read_text(path, findings):
 
 
 def _check_bytes(path, data, findings):
+    """card-spec 3.1 byte rules: ASCII only, no control bytes, LF endings, one
+    trailing newline, no trailing spaces. Each problem is reported once, at
+    its first occurrence."""
     if not data:
         findings.append(Finding(path, "bytes.empty-file", "the file is empty"))
         return
@@ -444,6 +470,7 @@ def _check_bytes(path, data, findings):
 
 
 def _line(data, offset):
+    """1-based line number of a byte offset."""
     return data.count(b"\n", 0, offset) + 1
 
 
@@ -470,6 +497,9 @@ def _check_frontmatter(path, text, parent, is_index, findings):
 
 
 def _check_keys(path, keys, data, allowed, required, findings):
+    """Closed schema: no duplicates, no forbidden or unknown keys, all required
+    keys present, and the present keys in the canonical order. `keys` is the
+    textual order (frontmatter_key_order), `data` the loaded mapping."""
     duplicates = sorted({key for key in keys if keys.count(key) > 1})
     if duplicates:
         findings.append(
@@ -527,6 +557,8 @@ def _check_keys(path, keys, data, allowed, required, findings):
 
 
 def _check_values(path, data, parent, is_index, findings):
+    """Per-key value checks, plus consistency with the filename stem and the
+    containing parent directory."""
     stem = path.name[:-3]
     if "id" in data:
         value = data["id"]
@@ -708,6 +740,8 @@ def _check_cadence(path, data, findings):
 
 
 def _check_links(path, text, parent, findings):
+    """card-spec link rules: no aliases, targets are bare IDs, and a link into
+    another task points at its parent index rather than one of its runs."""
     aliases = sorted(set(cards.find_alias_links(text)))
     if aliases:
         findings.append(
@@ -766,6 +800,7 @@ def _render(path, renderer, findings, *args):
 
 
 def _compare(path, text, rendered, findings):
+    """Report the first differing line between the card and its re-render."""
     if text == rendered:
         return
     found = text.split("\n")
@@ -786,6 +821,7 @@ def _compare(path, text, rendered, findings):
 
 
 def _check_chain(scan, runs, findings):
+    """previous_run must point at the run numbered one lower (none for 001)."""
     for number, run in runs:
         expected = None if number == 1 else cards.run_id(scan.parent, number - 1)
         actual = run.previous_run
@@ -832,10 +868,12 @@ def _card_error(path, exc):
 
 
 def _brief(value):
+    """Collapse whitespace in an exception message to one line of ASCII."""
     return _ascii(" ".join(str(value).split()))
 
 
 def _show(value):
+    """repr() of a value for a message, ASCII-escaped and length-capped."""
     if value is None:
         return "end of file"
     text = _ascii(repr(value))
@@ -845,10 +883,12 @@ def _show(value):
 
 
 def _ascii(text):
+    """Escape non-ASCII so findings are safe to print anywhere."""
     return text.encode("ascii", "backslashreplace").decode("ascii")
 
 
 def _ordered(findings):
+    """Deterministic output order: by path, then code, then message."""
     def key(finding):
         return (str(finding.path), finding.code, finding.message)
 

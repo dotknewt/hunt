@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 
 from . import cards
-from .vault import VaultError, _git, safe_path
+from .vault import VaultError, ignored, safe_path
 
 GITATTRIBUTES = """\
 # vault-spec 8: every committed byte uses LF, whatever the checkout platform
@@ -185,7 +185,7 @@ def scaffold(vault: Path, warn=None) -> list[Path]:
         target = safe_path(vault, name)
         if target.exists():
             continue
-        if _ignored(vault, name):
+        if name in ignored(vault, [Path(name)]):
             if warn is not None:
                 warn(
                     f"not writing {name}: a .gitignore in {vault} hides it, so it "
@@ -196,16 +196,6 @@ def scaffold(vault: Path, warn=None) -> list[Path]:
         _write(target, contents[name])
         created.append(target)
     return created
-
-
-def _ignored(vault: Path, name: str) -> bool:
-    """Does a .gitignore in the vault hide `name`? check-ignore exits 0 for
-    ignored, 1 for not ignored; anything else is a real failure."""
-    proc = _git(vault, "check-ignore", "--quiet", "--no-index", "--", name, check=False)
-    if proc.returncode in (0, 1):
-        return proc.returncode == 0
-    detail = proc.stderr.strip() or f"exit status {proc.returncode}"
-    raise VaultError(f"git check-ignore in {vault}: {detail}")
 
 
 def _write(path: Path, text: str) -> None:

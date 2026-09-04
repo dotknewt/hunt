@@ -38,12 +38,8 @@ def _quiet(default):
 
 @_quiet([])
 def categories():
-    """Every accepted category spelling (codes, aliases, directory names).
-    Imported lazily: cli imports this module, so a top-level import would be
-    circular."""
-    from .cli import category_spellings
-
-    return category_spellings()
+    """Every accepted category spelling (codes, aliases, directory names)."""
+    return cards.category_spellings()
 
 
 @_quiet([])

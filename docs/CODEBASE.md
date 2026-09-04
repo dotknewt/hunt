@@ -32,10 +32,10 @@ scripts, imported lazily so the CLI works without it), and a `git` binary on
 Internal import graph (arrows point at the importer's dependency):
 
 ```
-cli -> cards, config, scaffold, vault, validate, complete (lazy)
+cli -> cards, complete, config, scaffold, vault, validate
 validate -> cards, vault
-scaffold -> vault (private _git)
-complete -> cards, cli (lazy, to avoid a cycle: cli imports complete lazily too)
+scaffold -> cards, vault
+complete -> cards, config
 cards, config, vault -> hunt (HuntError) only
 ```
 
@@ -67,12 +67,9 @@ Depends on: every other module. Only place that prints, prompts, or reads
 `sys.argv`.
 
 Constants
-- `_CATEGORY_ALIASES`: `b`/`h`/`m` shorthands for `--category`. Kept out of
-  `cards.py` because they are input sugar, not part of the closed spec set.
 - `_COMPLETION_SHELLS`: `zsh`, `bash`, `powershell`.
 
 Functions
-- `category_spellings()`: every accepted `--category` spelling, help-text order.
 - `_category`, `_task_name`, `_parent_id`, `_card_id`, `_scope`, `_run_date`:
   argparse `type=` validators wrapping `cards.is_valid_*`; raise
   `ArgumentTypeError` with the expected shape.
@@ -140,7 +137,7 @@ number allocation, parsing and canonical rendering. No git and no printing.
 
 Constants
 - `CATEGORIES` (`BSL`/`HNT`/`MTH` -> directory name), `DIRECTORIES` (inverse),
-  `MAX_NUMBER = 999`.
+  `CATEGORY_ALIASES` (`b`/`h`/`m` shorthands), `MAX_NUMBER = 999`.
 - Status strings and tuples: `PARENT_STATUSES` (active, retired),
   `RUN_STATUSES` (open, complete, void).
 - Key schemas: `PARENT_KEYS`, `PARENT_REQUIRED_KEYS`, `RUN_KEYS`,
@@ -165,6 +162,7 @@ Classes
   `previous_run`, `status`, `scope`.
 
 Functions
+- `category_spellings()`: every accepted `--category` spelling, help-text order.
 - Frontmatter accessors `_string`, `_optional_string`, `_optional_date`,
   `_date_text` (rejects a YAML-parsed `date` object: dates must be quoted
   strings so the file round-trips byte for byte), `_fields(card, keys)`.
@@ -306,8 +304,8 @@ chain, numbering, links, single open run).
 
 ## `src/hunt/scaffold.py`
 
-Depends on: `vault._git` (private import), `json`. Files `hunt init` adds to a
-vault, each written only if absent.
+Depends on: `cards`, public `vault.ignored` / `vault.safe_path` / `VaultError`,
+`json`. Files `hunt init` adds to a vault, each written only if absent.
 
 - `GITATTRIBUTES` (`* text=auto eol=lf`), `GITIGNORE`, `WORKFLOW`
   (`.github/workflows/hunt.yml`: a `validate` job running `hunt validate` and a
@@ -318,17 +316,16 @@ vault, each written only if absent.
 - `files()`: path -> content mapping. `missing(vault)`: which are absent.
 - `scaffold(vault, warn=None)`: writes the missing files; skips any that the
   vault's `.gitignore` hides and reports through `warn`. Returns created paths.
-- `_ignored(vault, name)`: `git check-ignore` for one path.
 - `_write(path, text)`: asserts ASCII, LF only, newline-terminated.
 
 ## `src/hunt/complete.py`
 
-Depends on: `cards`; `cli` lazily. Called by `hunt __complete` from shell
+Depends on: `cards`, `config`. Called by `hunt __complete` from shell
 completion scripts, so it must never fail loudly.
 
 - `_quiet(default)`: decorator that swallows every exception and returns
   `default`; set `HUNT_COMPLETE_DEBUG=1` to see the traceback instead.
-- `categories()`: `cli.category_spellings()`.
+- `categories()`: `cards.category_spellings()`.
 - `parent_ids()`: parent ids found by scanning the configured vault's category
   directories (skips symlinks; no config -> empty list).
 
@@ -354,13 +351,10 @@ listed for a future pass, roughly by usefulness.
    --against <rev>`) is tracked in `TODO.md`; the scaffolded workflow carries an
    echo placeholder step. Cross-branch numbering conflicts are therefore only
    caught after merge.
-3. **`scaffold.py` imports the private `vault._git`.** Either promote a small
-   public `check_ignore` helper in `vault.py` or have scaffold call
-   `vault.ignored`, which already exists and does the same thing in batch.
-4. **`complete.categories` lazy-imports `cli`, and `cli` lazy-imports
-   `complete`.** The cycle is real; moving `category_spellings` and
-   `_CATEGORY_ALIASES` into `cards.py` (or a tiny `categories.py`) would remove
-   both lazy imports.
+3. **Applied:** `scaffold.py` now calls public `vault.ignored`; it no longer
+   imports private `vault._git` or duplicates the ignore check.
+4. **Applied:** category spellings now live in `cards.py`; `complete` and `cli`
+   import directly without a cycle or lazy imports.
 5. **`cards.find_links`** is `[raw for raw in _LINK_RE.findall(text)]`, a
    no-op list comprehension over a list. `_LINK_RE.findall(text)` is equivalent.
 6. **`cards._next_number` and `validate._check_parent_numbers`** rebuild

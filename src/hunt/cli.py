@@ -6,7 +6,7 @@ import sys
 from datetime import date
 from pathlib import Path
 
-from . import HuntError, cards, scaffold, vault
+from . import HuntError, cards, complete, scaffold, vault
 from .cards import CardError
 from .config import (
     CONF_NAME,
@@ -22,29 +22,15 @@ from .validate import validate_parent_dir, validate_vault
 from .vault import VaultError
 
 
-# Typing conveniences, deliberately not in cards.py: cards.CATEGORIES mirrors
-# the closed set of card-spec 2.1, and an input shorthand is not part of it.
-_CATEGORY_ALIASES = {"b": "BSL", "h": "HNT", "m": "MTH"}
-
-
-def category_spellings():
-    """Every spelling --category accepts, in the order the help text lists them."""
-    return (
-        sorted(cards.CATEGORIES.values())
-        + sorted(cards.CATEGORIES)
-        + sorted(_CATEGORY_ALIASES)
-    )
-
-
 def _category(value):
-    if isinstance(value, str) and value.lower() in _CATEGORY_ALIASES:
-        return _CATEGORY_ALIASES[value.lower()]
+    if isinstance(value, str) and value.lower() in cards.CATEGORY_ALIASES:
+        return cards.CATEGORY_ALIASES[value.lower()]
     try:
         return cards.resolve_category(value)
     except CardError:
         raise argparse.ArgumentTypeError(
             "invalid category %r (expected one of: %s)"
-            % (value, ", ".join(category_spellings()))
+            % (value, ", ".join(cards.category_spellings()))
         )
 
 
@@ -336,8 +322,6 @@ def cmd_completion(args, today):
 
 
 def cmd_hidden_complete(args, today):
-    from . import complete
-
     producers = {"ids": complete.parent_ids, "categories": complete.categories}
     for candidate in producers[args.kind]():
         print(candidate)
@@ -372,7 +356,7 @@ def build_parser():
         required=True,
         type=_category,
         metavar="<category>",
-        help="one of: %s (case-insensitive)" % ", ".join(category_spellings()),
+        help="one of: %s (case-insensitive)" % ", ".join(cards.category_spellings()),
     ).complete = _dynamic("categories", "_hunt_categories")
     new.add_argument(
         "--name",

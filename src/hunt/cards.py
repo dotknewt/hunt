@@ -13,8 +13,14 @@ from . import HuntError
 
 CATEGORIES = {"BSL": "baseline", "HNT": "hunt", "MTH": "math"}
 DIRECTORIES = {directory: code for code, directory in CATEGORIES.items()}
+CATEGORY_ALIASES = {"b": "BSL", "h": "HNT", "m": "MTH"}
 
 MAX_NUMBER = 999
+
+
+def category_spellings():
+    """Every spelling --category accepts, in help-text order."""
+    return sorted(CATEGORIES.values()) + sorted(CATEGORIES) + sorted(CATEGORY_ALIASES)
 
 STATUS_ACTIVE = "active"
 STATUS_RETIRED = "retired"

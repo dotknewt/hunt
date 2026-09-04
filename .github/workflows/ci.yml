@@ -51,6 +51,8 @@ jobs:
           echo "HUNT_CONF=$RUNNER_TEMP/hunt.conf" >> "$GITHUB_ENV"
       - name: hunt validate finds nothing
         run: uv run hunt validate
+      - name: transition validation finds nothing against an unchanged tree
+        run: uv run hunt validate --against main
 
   config-is-empty:
     # hunt.conf is tracked so that a checkout has something to edit. The

@@ -256,26 +256,50 @@ def test_an_empty_card_has_its_own_code(good):
 
 
 HNT_RUN2 = "hunt/HNT-001/HNT-001.002.md"
+SCOPE = 'scope: ["windows", "workstations"]'
 
 
 def test_scope_is_optional(good):
     """card-spec 6.1: dropping the key is not a finding; the reference vault
     validates clean both with the field and without it."""
-    edit(good, HNT_RUN2, '\nscope: "windows workstations"', "")
+    edit(good, HNT_RUN2, "\n" + SCOPE, "")
     assert validate_vault(good.path) == []
 
 
 def test_scope_value_is_never_checked_against_a_list(good):
     """No vocabulary exists; an unusual value is as valid as a familiar one."""
-    edit(good, HNT_RUN2, '"windows workstations"', '"three lab racks and a coffee machine"')
+    edit(good, HNT_RUN2, SCOPE, 'scope: ["three lab racks", "a coffee machine"]')
+    assert validate_vault(good.path) == []
+
+
+def test_a_one_item_scope_validates(good):
+    edit(good, HNT_RUN2, SCOPE, 'scope: ["windows"]')
+    assert validate_vault(good.path) == []
+
+
+def test_a_v5_scalar_scope_still_validates(good):
+    """Schema v5 wrote one quoted string. Invariant 9 forbids editing an
+    accepted run, so such a card must stay valid and must re-render unchanged."""
+    edit(good, HNT_RUN2, SCOPE, 'scope: "windows workstations"')
     assert validate_vault(good.path) == []
 
 
 @pytest.mark.parametrize(
-    "value", ['""', '" windows"', '"windows "', '"back\\\\slash"', "[windows]", "7"]
+    "value",
+    [
+        "[]",
+        '[""]',
+        '[" windows"]',
+        '["windows "]',
+        '["back\\\\slash"]',
+        '["windows", 7]',
+        '""',
+        "7",
+        "{a: b}",
+    ],
 )
 def test_malformed_scope_is_reported(good, value):
-    edit(good, HNT_RUN2, '"windows workstations"', value)
+    edit(good, HNT_RUN2, SCOPE, "scope: " + value)
     assert set(codes(good.path)) & {"frontmatter.bad-scope", "frontmatter.bad-type"}
 
 
@@ -283,15 +307,15 @@ def test_scope_before_status_is_a_key_order_finding(good):
     edit(
         good,
         HNT_RUN2,
-        'status: complete\nscope: "windows workstations"\n',
-        'scope: "windows workstations"\nstatus: complete\n',
+        "status: complete\n" + SCOPE + "\n",
+        SCOPE + "\nstatus: complete\n",
     )
     assert "frontmatter.key-order" in codes(good.path)
 
 
 def test_scope_on_a_parent_card_is_an_unknown_key(good):
     """scope is a run field; the parent schema stays closed against it."""
-    edit(good, BSL, "status: active\n", 'status: active\nscope: "windows"\n')
+    edit(good, BSL, "status: active\n", 'status: active\nscope: ["windows"]\n')
     assert "frontmatter.unknown-key" in codes(good.path)
 
 

@@ -55,7 +55,7 @@ hunt init --vault-path ~/vaults/hunting --vault-branch drafting
 hunt new -c h                     # -> HNT-001, titled after its own id
 hunt new -c hunt --name "Monthly encoded PowerShell persistence hunt" --cadence 30
 hunt run --id HNT-001
-hunt run --id HNT-001 --scope "windows servers"
+hunt run --id HNT-001 --scope windows,servers
 hunt validate
 ```
 
@@ -71,9 +71,15 @@ configured vault verifies and succeeds without committing.
 `baseline`/`BSL`/`b`, `hunt`/`HNT`/`h`, `math`/`MTH`/`m`.
 
 `hunt run --scope` records what the run covered - `windows`, `on-prem`,
-`clients`, or any phrase that fits. It is optional and free text: `hunt` checks
-that the value is a single line of printable ASCII and nothing more. There is
-no list of permitted scopes, and nothing enforces one.
+`clients`, or any phrase that fits. Give one item or several, separated by a
+comma with no space (`--scope windows,servers`); they are stored as a list. It
+is optional and free text: `hunt` checks that each item is a single line of
+printable ASCII and nothing more. There is no list of permitted scopes, and
+nothing enforces one.
+
+`hunt new` tags a new parent card with its own category (`baseline`, `hunt` or
+`math`) so that every card is findable by the thing it always is. Any tag
+already present is kept, and the category tag is never added twice.
 
 `hunt new --cadence` records how often, in days, the task is meant to recur.
 It is optional and takes a positive integer; `hunt` checks only that the
@@ -130,9 +136,12 @@ passed validation, which is the binding `docs/vault-spec.md` Section 4 relies
 on.
 
 Transition validation (`docs/card-spec.md` Section 8.2: nothing accepted is
-deleted, renumbered or reused across branches) is not implemented yet. The
-workflow carries a placeholder step for it, and until `hunt validate --against`
-exists the check is part of the human review of each merge.
+deleted, renumbered or reused across branches) runs as `hunt validate --against
+origin/main`, which the scaffolded workflow invokes on every pull request. It
+reads the accepted tree out of git and reports a `transition.*` finding for a
+deleted card, a number now holding a different task, an edited field of an
+accepted card, a status that went backwards, or a rewritten Outcome. It exits
+non-zero on any finding, and on a revision git cannot resolve.
 
 ## Environment artifacts
 

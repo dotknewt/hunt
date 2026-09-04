@@ -393,6 +393,22 @@ def sweep(vault: Path) -> list[Path]:
     return removed
 
 
+def resolve_revision(vault: Path, revision: str) -> str:
+    """The commit a revision names, or a VaultError. `--against` is handed a
+    branch, tag or sha by a human or a workflow; a typo has to say so rather
+    than compare the tree against nothing and report all clear."""
+    vault = Path(vault)
+    if not isinstance(revision, str) or not revision or revision.startswith("-"):
+        raise VaultError("not a revision: %r" % (revision,))
+    proc = _git(
+        vault, "rev-parse", "--verify", "--quiet", revision + "^{commit}", check=False
+    )
+    sha = proc.stdout.strip()
+    if proc.returncode != 0 or not sha:
+        raise VaultError("unknown revision: " + revision)
+    return sha
+
+
 def tracked_blobs(vault: Path, revision: str = "HEAD") -> list[tuple[str, bytes]]:
     """Every blob a revision records, as (path relative to the root, bytes).
 

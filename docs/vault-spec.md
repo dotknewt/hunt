@@ -483,8 +483,8 @@ both the byte rule and the re-render comparison that validation depends on.
   validation (`docs/card-spec.md` Section 8.1) over the tree under review and
   the committed-blob check above over its blobs, and fail on any finding. It
   SHOULD run transition validation (`docs/card-spec.md` Section 8.2) against
-  `main` once a validator implements it; until one does, that step is a
-  placeholder and the check is a duty of the human review (Section 4). The
+  `main`, which `hunt validate --against origin/main` performs, and fail on any
+  finding. The
   remote's `main` SHOULD be protected by a rule that requires those checks to
   pass, requires a pull request, and forbids force pushes and deletion. This
   contract does not otherwise constrain the workflow's contents.

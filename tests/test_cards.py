@@ -12,7 +12,7 @@ PARENTS = ("baseline/BSL-001", "hunt/HNT-001", "math/MTH-001")
 PARENT_NO_RUNS = """---
 id: BSL-002
 category: BSL
-tags: []
+tags: [baseline]
 status: active
 ---
 
@@ -333,26 +333,61 @@ def test_scope_is_optional_and_absent_by_default():
     assert "scope" not in cards.render_run(run)
 
 
-def test_scope_renders_last_and_round_trips():
-    run = cards.new_run("BSL-002.002", "2026-09-02", "BSL-002.001", "windows servers")
+def test_scope_renders_last_as_a_list_and_round_trips():
+    run = cards.new_run(
+        "BSL-002.002", "2026-09-02", "BSL-002.001", ["windows", "servers"]
+    )
     text = cards.render_run(run)
     keys = cards.frontmatter_key_order(text)
     assert keys == ["id", "parent", "run_date", "previous_run", "status", "scope"]
-    assert 'scope: "windows servers"\n' in text
-    assert cards.parse_run(text).scope == "windows servers"
+    assert 'scope: ["windows", "servers"]\n' in text
+    assert cards.parse_run(text).scope == ["windows", "servers"]
     assert cards.render_run(cards.parse_run(text)) == text
+
+
+def test_a_one_item_scope_is_still_written_as_a_list():
+    run = cards.new_run("BSL-002.001", "2026-09-01", None, ["windows"])
+    assert 'scope: ["windows"]\n' in cards.render_run(run)
+    assert cards.parse_run(cards.render_run(run)).scope == ["windows"]
+
+
+def test_a_bare_string_scope_is_taken_as_one_item():
+    """A convenience for callers, not a second spelling: it is stored, and
+    written, as a one-item list."""
+    run = cards.new_run("BSL-002.001", "2026-09-01", None, "windows")
+    assert run.scope == ["windows"]
+    assert 'scope: ["windows"]\n' in cards.render_run(run)
+
+
+def test_a_v5_scalar_scope_reads_as_a_one_item_list_and_renders_unchanged():
+    """Invariant 9 forbids editing an accepted run, and 8.1 compares a card
+    with its canonical re-render, so a v5 card must stay exactly itself."""
+    text = (
+        "---\n"
+        "id: BSL-002.001\n"
+        "parent: BSL-002\n"
+        'run_date: "2026-09-01"\n'
+        "status: open\n"
+        'scope: "windows servers"\n'
+        "---\n"
+        "\n"
+        "Part of: [[BSL-002]]\n"
+        "\n"
+        "## Outcome\n"
+    )
+    run = cards.parse_run(text)
+    assert run.scope == ["windows servers"]
+    assert cards.render_run(run) == text
 
 
 @pytest.mark.parametrize(
     "scope",
     [
-        "windows",
-        "servers",
-        "clients",
-        "on-prem",
-        "firewalls",
-        "EU tier-1 DMZ hosts (excluding lab)",
-        "10.0.0.0/8",
+        ["windows"],
+        ["windows", "servers"],
+        ["clients", "on-prem", "firewalls"],
+        ["EU tier-1 DMZ hosts (excluding lab)"],
+        ["10.0.0.0/8"],
     ],
 )
 def test_scope_takes_any_well_formed_value(scope):
@@ -363,7 +398,20 @@ def test_scope_takes_any_well_formed_value(scope):
 
 @pytest.mark.parametrize(
     "scope",
-    ["", " ", "windows ", " windows", 'say "windows"', "back\\slash", "two\nlines", 7],
+    [
+        [],
+        [""],
+        [" "],
+        ["windows ", "servers"],
+        [" windows"],
+        ['say "windows"'],
+        ["back\\slash"],
+        ["two\nlines"],
+        [7],
+        "",
+        7,
+        {"windows": True},
+    ],
 )
 def test_scope_rejects_a_malformed_value(scope):
     with pytest.raises(CardError):
@@ -371,9 +419,13 @@ def test_scope_rejects_a_malformed_value(scope):
 
 
 def test_a_malformed_scope_in_an_existing_card_is_rejected_on_parse():
-    text = cards.render_run(cards.new_run("BSL-002.001", "2026-09-01", None, "windows"))
+    text = cards.render_run(
+        cards.new_run("BSL-002.001", "2026-09-01", None, ["windows"])
+    )
     with pytest.raises(CardError):
-        cards.parse_run(text.replace('scope: "windows"', "scope: 7"))
+        cards.parse_run(text.replace('scope: ["windows"]', "scope: 7"))
+    with pytest.raises(CardError):
+        cards.parse_run(text.replace('scope: ["windows"]', "scope: []"))
 
 
 # --- parent cadence -----------------------------------------------------------
@@ -430,3 +482,37 @@ def test_a_malformed_cadence_in_an_existing_card_is_rejected_on_parse():
     text = cards.render_parent(cards.new_parent("BSL-002", "A task", cadence=30), [])
     with pytest.raises(CardError):
         cards.parse_parent(text.replace("cadence: 30", "cadence: -1"))
+
+
+# --- default category tag -----------------------------------------------------
+
+
+def test_a_new_parent_is_tagged_with_its_category():
+    """The category directory name is the tag: card-spec 4 requires a tag to
+    match ^[a-z0-9][a-z0-9_-]*$, which the uppercase code cannot."""
+    parent = cards.new_parent("HNT-001", "A hunt")
+    assert parent.tags == ["hunt"]
+    assert "tags: [hunt]\n" in cards.render_parent(parent, [])
+
+
+def test_the_category_tag_is_added_for_every_category():
+    assert cards.new_parent("BSL-001", "A baseline").tags == ["baseline"]
+    assert cards.new_parent("HNT-001", "A hunt").tags == ["hunt"]
+    assert cards.new_parent("MTH-001", "Some math").tags == ["math"]
+
+
+def test_the_category_tag_comes_first_and_keeps_the_given_tags():
+    parent = cards.new_parent("HNT-001", "A hunt", ["dns", "example"])
+    assert parent.tags == ["hunt", "dns", "example"]
+
+
+def test_the_category_tag_is_not_duplicated():
+    parent = cards.new_parent("HNT-001", "A hunt", ["dns", "hunt"])
+    assert parent.tags == ["dns", "hunt"]
+
+
+def test_a_new_parent_card_round_trips_with_its_category_tag():
+    parent = cards.new_parent("MTH-001", "Some math")
+    text = cards.render_parent(parent, [])
+    assert cards.parse_parent(text).tags == ["math"]
+    assert cards.render_parent(cards.parse_parent(text), []) == text

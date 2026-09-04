@@ -1,6 +1,6 @@
 # Recurring Task-Card Schema (Obsidian, plain-text Markdown)
 
-**Version:** 6
+**Version:** 8
 **Status:** normative schema and validation contract.
 **Scope:** card format, cross-file invariants, and the rules a validator MUST
 enforce, over a tree of card files rooted at a *card root*. Where that root
@@ -10,7 +10,18 @@ no path outside the card tree and no version-control system. Tool
 implementation, CI wiring, and a stats layer are not specified here; their
 *absence* does not weaken any rule below. Every rule below is enforceable today
 by manual inspection and MUST be enforced by code once a validator exists.
-**Changelog:** v6 adds the optional parent-card field `cadence` (Sections 4
+**Changelog:** v8 freezes the whole body of an accepted run card (Section 6.1
+and invariant 9 of Section 7): every section after `## Outcome` is as immutable
+as the frontmatter, and the only permitted body change remains an appended
+addition under `## Outcome`. v7 widens the optional run-card field `scope` (Sections 4 and
+6.1) from a single quoted string to a flow sequence of one or more quoted
+strings, written `scope: ["windows", "servers"]`. Each item obeys the shape v5
+gave the scalar; the sequence MUST NOT be empty, and the way to record no scope
+is still to omit the key. A card written against v5 carrying a bare quoted
+string remains valid and MUST be read as a one-item sequence and re-rendered
+in the spelling it uses: invariant 9 of Section 7 forbids editing an accepted
+run, so a v5 card can never be migrated in place.
+v6 adds the optional parent-card field `cadence` (Sections 4
 and 5.1): an unquoted positive integer number of days naming how often the
 task is meant to recur. It carries no enforced value set beyond "positive
 integer"; a validator checks only that a present value is well formed. It is
@@ -233,7 +244,7 @@ rendered and byte-compared (Section 8.1).
 | `cadence` | integer | positive integer, number of days; unquoted, no leading zero or sign; **no value set beyond "positive integer" is defined and none MUST be enforced** |
 | `run_date`, `latest_run_date` | quoted string | `"YYYY-MM-DD"`, a valid Gregorian date; quoted to avoid YAML date-type coercion |
 | `latest_run`, `previous_run` | string | bare `RUN_ID`, no `.md` |
-| `scope` | quoted string | a single non-empty line; printable ASCII per Section 3.1; no leading or trailing space; MUST NOT contain `"` or `\`; quoted so that a value YAML would otherwise coerce stays a string. **No value set is defined and none MUST be enforced** |
+| `scope` | array of quoted strings | one or more items, written as a single-line flow sequence with items separated by `, `; MUST NOT be empty (`[]`); each item is a single non-empty line, printable ASCII per Section 3.1, no leading or trailing space, MUST NOT contain `"` or `\`, and is quoted so that a value YAML would otherwise coerce stays a string. A bare quoted string (the v5 spelling) MUST be accepted, read as a one-item sequence, and re-rendered as it was found. **No value set is defined and none MUST be enforced** |
 
 One body value is constrained here because tooling must reproduce it exactly:
 
@@ -393,7 +404,7 @@ parent: BSL-001
 run_date: "2026-08-31"
 previous_run: BSL-001.001   # REQUIRED unless the run number is 1
 status: open
-scope: "windows servers"    # OPTIONAL
+scope: ["windows", "servers"]   # OPTIONAL
 ---
 ```
 
@@ -404,10 +415,11 @@ scope: "windows servers"    # OPTIONAL
 `run_number` MUST NOT appear (Section 4).
 
 **`scope` is free text, and its values are not a closed set.** It records what
-this run covered - `"windows"`, `"servers"`, `"clients"`, `"on-prem"`,
-`"firewalls"`, or any phrase the hunter finds useful. A validator MUST check
-the *shape* given in Section 4 and MUST NOT check the value against any list,
+this run covered - `["windows"]`, `["windows", "servers"]`, `["on-prem"]`, or
+any phrase the hunter finds useful, one item or several. A validator MUST check
+the *shape* given in Section 4 and MUST NOT check any item against a list,
 vocabulary, or registry: no such list exists, and this document defines none.
+The order of items carries no meaning, and no rule elsewhere derives from it.
 Two runs of the same parent MAY carry unrelated scopes, or none at all; nothing
 elsewhere in this document derives from, aggregates, or cross-checks the field.
 A parent card has no `scope`, and scope is not a tag: `tags` remains a
@@ -442,7 +454,9 @@ accepted: `status`, advancing along the chain above. No other field (`id`,
 `parent`, `run_date`, `previous_run`) may ever change thereafter, and the
 file's number, being its filename, cannot change at all. The run's
 `## Outcome` body text MAY receive an appended explanation but the heading and
-prior content MUST NOT be altered or removed. A `void` run remains part of the
+prior content MUST NOT be altered or removed, and any section after
+`## Outcome` MUST NOT be added, removed, or edited (invariant 9, Section 7).
+A `void` run remains part of the
 `previous_run` chain and remains eligible to be `latest_run` (Section 5.1).
 
 ### 6.2 Body - required structure
@@ -511,8 +525,11 @@ each invariant constrains what the proposed tree that would replace it may do:
 7. No parent or run number, once accepted, is ever reused for a different card.
 8. No accepted card file is ever deleted, renamed, or moved.
 9. No field of an accepted run card changes, except `status`, advancing one
-   step at a time along `open -> complete -> void` (Section 6.1), plus an
-   appended (not replacing) addition under `## Outcome`. No field of an
+   step at a time along `open -> complete -> void` (Section 6.1). The only
+   body change on an accepted run is an appended (not replacing) addition
+   under `## Outcome`; every section after `## Outcome` is frozen exactly as
+   the frontmatter is, so a section is never added, removed, or edited
+   there once the run is accepted. No field of an
    accepted parent card changes, except `status` (`active -> retired`,
    one-way), `cadence` (freely, to any other value satisfying Section 4, or
    removed), and, only up to the moment of retirement, `latest_run`/

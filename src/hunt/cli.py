@@ -18,7 +18,7 @@ from .config import (
     require_configured,
     write_config,
 )
-from .validate import validate_parent_dir, validate_vault
+from .validate import validate_parent_dir, validate_transition, validate_vault
 from .vault import VaultError
 
 
@@ -59,13 +59,34 @@ def _card_id(value):
     )
 
 
+def _revision(value):
+    """Syntax only: whether a revision exists is git's answer, given later by
+    vault.resolve_revision. Rejected here are the spellings git could never be
+    asked about -- nothing to resolve, or a leading dash it would read as one
+    of its own options."""
+    if value.strip() and not value.startswith("-"):
+        return value
+    raise argparse.ArgumentTypeError(
+        "not a revision: %r (expected e.g. origin/main, a tag, or a sha)" % value
+    )
+
+
 def _scope(value):
-    if not cards.is_valid_scope(value):
+    """--scope windows,servers -> ["windows", "servers"] (card-spec 6.1). The
+    separator is a bare comma: an item may hold spaces, so splitting on ", "
+    would make "windows, servers" mean two different things by one keystroke."""
+    items = value.split(",")
+    if not all(cards.is_valid_scope(item) for item in items):
         raise argparse.ArgumentTypeError(
-            "invalid scope %r (expected a single non-empty line of printable ASCII, "
-            "without a double quote, a backslash, or surrounding spaces)" % value
+            "invalid scope %r (expected one or more items separated by a comma with "
+            "no space, each a single non-empty line of printable ASCII, without a "
+            "double quote, a backslash, or surrounding spaces)" % value
         )
-    return value
+    if len(set(items)) != len(items):
+        # Silently dropping the repeat would record something other than what
+        # was typed; the card is immutable once accepted, so say so up front.
+        raise argparse.ArgumentTypeError("invalid scope %r (an item is repeated)" % value)
+    return items
 
 
 def _cadence(value):
@@ -267,7 +288,16 @@ def cmd_validate(args, today):
         raise VaultError("vault does not exist: %s" % config.vault_path)
     if not vault.is_repo(config.vault_path):
         raise VaultError("vault is not a git repository: %s" % config.vault_path)
-    if args.id is None:
+    if args.against is not None:
+        # Resolve first so a typo is an error, not an all-clear against a tree
+        # git never found, and read at the resolved commit so a ref that moves
+        # mid-run is not consulted twice. The user's spelling is what the
+        # findings quote.
+        sha = vault.resolve_revision(config.vault_path, args.against)
+        findings = validate_vault(config.vault_path) + validate_transition(
+            config.vault_path, sha, label=args.against
+        )
+    elif args.id is None:
         findings = validate_vault(config.vault_path)
     elif cards.is_valid_parent_id(args.id):
         findings = validate_parent_dir(config.vault_path, args.id)
@@ -385,14 +415,24 @@ def build_parser():
     run.add_argument(
         "--scope",
         type=_scope,
-        metavar="<scope>",
-        help="free-text scope of the run, e.g. 'windows servers'; omitted if unset",
+        metavar="<scope>[,<scope>...]",
+        help="comma-separated free-text scope, e.g. windows,servers; omitted if unset",
     )
     run.set_defaults(func=cmd_run)
 
     validate = subparsers.add_parser("validate", help="validate the vault")
-    validate.add_argument(
+    # Mutually exclusive: --id narrows to one card, --against widens to a whole
+    # tree comparison. Asking for both is a mistake worth reporting.
+    scope_of_run = validate.add_mutually_exclusive_group()
+    scope_of_run.add_argument(
         "--id", type=_card_id, metavar="<ID>", help="restrict findings to one card"
+    )
+    scope_of_run.add_argument(
+        "--against",
+        type=_revision,
+        metavar="<rev>",
+        help="also check the transition from a git revision, e.g. origin/main "
+        "(card-spec 8.2)",
     )
     validate.set_defaults(func=cmd_validate)
 

@@ -169,7 +169,7 @@ def test_lifecycle(vault):
     front, _ = split_card(text)
     assert "id: HNT-001" in front
     assert "category: HNT" in front
-    assert "tags: []" in front
+    assert "tags: [hunt]" in front, "a new parent is tagged with its category"
     assert "status: active" in front
     assert not [line for line in front if line.startswith("latest_run")]
     assert headings(text) == [
@@ -740,14 +740,27 @@ def test_run_records_a_scope_when_given(vault):
     assert hunt(vault, "init").returncode == 0
     assert hunt(vault, "new", "-c", "h", "--name", NAME).returncode == 0
     result = hunt(
-        vault, "run", "--id", "HNT-001", "--date", DATE1, "--scope", "windows servers"
+        vault, "run", "--id", "HNT-001", "--date", DATE1, "--scope", "windows,servers"
     )
     assert result.returncode == 0, result.stderr
 
     front, _ = split_card(card(vault, "HNT-001.001.md").read_text())
-    assert front[-1] == 'scope: "windows servers"', "scope is the last key"
+    assert front[-1] == 'scope: ["windows", "servers"]', "scope is the last key"
     assert hunt(vault, "validate").returncode == 0
     assert_clean(vault)
+
+
+def test_run_records_a_one_item_scope(vault):
+    assert hunt(vault, "init").returncode == 0
+    assert hunt(vault, "new", "-c", "h", "--name", NAME).returncode == 0
+    result = hunt(
+        vault, "run", "--id", "HNT-001", "--date", DATE1, "--scope", "windows"
+    )
+    assert result.returncode == 0, result.stderr
+
+    front, _ = split_card(card(vault, "HNT-001.001.md").read_text())
+    assert front[-1] == 'scope: ["windows"]'
+    assert hunt(vault, "validate").returncode == 0
 
 
 def test_run_omits_scope_when_not_given(vault):
@@ -760,7 +773,22 @@ def test_run_omits_scope_when_not_given(vault):
     assert hunt(vault, "validate").returncode == 0
 
 
-@pytest.mark.parametrize("scope", ["", " windows", 'say "windows"', "back\\slash"])
+@pytest.mark.parametrize(
+    "scope",
+    [
+        "",
+        ",",
+        "windows,",
+        ",windows",
+        "windows,,servers",
+        "windows, servers",
+        " windows",
+        'say "windows"',
+        "back\\slash",
+        "windows,windows",
+        "windows,servers,windows",
+    ],
+)
 def test_run_rejects_a_malformed_scope(vault, scope):
     assert hunt(vault, "init").returncode == 0
     assert hunt(vault, "new", "-c", "h", "--name", NAME).returncode == 0
@@ -801,3 +829,73 @@ def test_new_rejects_a_malformed_cadence(vault, cadence):
     assert result.returncode == 2
     assert "invalid cadence" in result.stderr
     assert not card(vault, "HNT-001.md").exists()
+
+
+# --- transition validation ----------------------------------------------------
+
+
+def test_validate_against_head_is_clean_for_an_untouched_vault(vault):
+    assert hunt(vault, "init").returncode == 0
+    assert hunt(vault, "new", "-c", "h", "--name", NAME).returncode == 0
+    assert hunt(vault, "run", "--id", "HNT-001", "--date", DATE1).returncode == 0
+
+    result = hunt(vault, "validate", "--against", "HEAD")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.stdout == ""
+
+
+def test_validate_against_quotes_the_spelling_given(vault):
+    assert hunt(vault, "init").returncode == 0
+    assert hunt(vault, "new", "-c", "h", "--name", NAME).returncode == 0
+    assert hunt(vault, "run", "--id", "HNT-001", "--date", DATE1).returncode == 0
+    card(vault, "HNT-001.001.md").unlink()
+
+    result = hunt(vault, "validate", "--against", "HEAD")
+    assert result.returncode == 1
+    assert "recorded at HEAD " in result.stdout, result.stdout
+
+
+def test_validate_against_head_rejects_a_deleted_card(vault):
+    assert hunt(vault, "init").returncode == 0
+    assert hunt(vault, "new", "-c", "h", "--name", NAME).returncode == 0
+    assert hunt(vault, "run", "--id", "HNT-001", "--date", DATE1).returncode == 0
+    card(vault, "HNT-001.001.md").unlink()
+
+    result = hunt(vault, "validate", "--against", "HEAD")
+    assert result.returncode == 1
+    assert "transition.card-deleted" in result.stdout
+
+
+def test_validate_against_head_rejects_a_reused_number(vault):
+    assert hunt(vault, "init").returncode == 0
+    assert hunt(vault, "new", "-c", "h", "--name", NAME).returncode == 0
+    path = card(vault, "HNT-001.md")
+    path.write_text(
+        path.read_text().replace(f"# HNT-001 - {NAME}", "# HNT-001 - Another task"),
+        encoding="utf-8",
+    )
+
+    result = hunt(vault, "validate", "--against", "HEAD")
+    assert result.returncode == 1
+    assert "transition.number-reused" in result.stdout
+
+
+def test_validate_against_an_unknown_revision_says_so(vault):
+    assert hunt(vault, "init").returncode == 0
+    result = hunt(vault, "validate", "--against", "no-such-branch")
+    assert result.returncode == 1
+    assert "unknown revision: no-such-branch" in result.stderr
+
+
+def test_validate_refuses_id_and_against_together(vault):
+    assert hunt(vault, "init").returncode == 0
+    result = hunt(vault, "validate", "--id", "HNT-001", "--against", "HEAD")
+    assert result.returncode == 2
+    assert "not allowed with" in result.stderr
+
+
+def test_validate_rejects_an_empty_against(vault):
+    assert hunt(vault, "init").returncode == 0
+    result = hunt(vault, "validate", "--against", "")
+    assert result.returncode == 2
+    assert "not a revision" in result.stderr

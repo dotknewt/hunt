@@ -166,7 +166,8 @@ Functions
 - Frontmatter accessors `_string`, `_optional_string`, `_optional_date`,
   `_date_text` (rejects a YAML-parsed `date` object: dates must be quoted
   strings so the file round-trips byte for byte), `_fields(card, keys)`.
-- `is_valid_tag/scope/date/task_name/parent_id/run_id`: pure predicates.
+- `is_valid_tag/scope/scope_list/date/task_name/parent_id/run_id`: pure
+  predicates.
 - `load_frontmatter(block)`: public alias of `_load_frontmatter`.
 - `find_links(text)`, `find_alias_links(text)`: raw wikilink contents.
 - `resolve_category(value)`: code or directory name, case-insensitive -> code.
@@ -184,8 +185,10 @@ Functions
   `CardError` (`FILE-NON-ASCII`). Pure-ASCII is enforced later by validation.
 - `write_card(path, text)`: atomic write (`.hunt-tmp`, fsync, `os.replace`).
 - `load_parent`, `load_runs`: read + parse.
-- `new_parent(parent, name, tags, why)`, `new_run(run, run_date, previous_run,
-  scope)`: fresh in-memory cards.
+- `new_parent(parent, name, tags, why, cadence)`: a fresh parent, tagged with
+  its category directory name unless the caller already supplied that tag.
+- `new_run(run, run_date, previous_run, scope)`: a fresh run; `scope` is a list
+  of items (a bare string is taken as one item).
 - `_check_name(name)`: task-name validity.
 - `_FrontmatterLoader(yaml.SafeLoader)` + `_construct_mapping`: SafeLoader
   subclass whose mapping constructor rejects duplicate keys (PyYAML silently
@@ -241,6 +244,8 @@ Functions
 - `text_attributes(vault, paths)`: `git check-attr -z` parsed in
   (path, attr, value) triples; used by validate to confirm `text=auto eol=lf`.
 - `sweep(vault)`: delete `OS_ARTIFACTS` anywhere under the vault; returns them.
+- `resolve_revision(vault, revision)`: the commit a revision names, or a
+  `VaultError`; used by `validate --against` so a typo is not an all-clear.
 - `tracked_blobs(vault, revision="HEAD")`: `(path, bytes)` for every tracked
   blob, one `git show` each.
 - `ignored(vault, paths)`: `git check-ignore --no-index --stdin -z`; exit 0 and
@@ -287,7 +292,16 @@ Pipeline helpers
 - `_read_text`, `_check_bytes` (empty, non-ASCII, control chars, CR, missing or
   extra trailing newline, trailing whitespace), `_line(data, offset)`.
 - `_check_frontmatter`, `_check_keys` (duplicates, forbidden, unknown, missing,
-  order), `_check_values`, `_check_category`, `_check_tags`, `_check_scope`.
+  order), `_check_values`, `_check_category`, `_check_tags`, `_check_scope`
+  (a list of items, or a v5 scalar read as one item).
+- `validate_transition(vault_path, revision, label=None)`: card-spec 8.2,
+  invariants 7-10 between the working tree and the tree recorded at
+  `revision`; findings quote `label` (the spelling the user typed) when given. Helpers
+  `_revision_cards`, `_tree_cards`, `_is_card_name`,
+  `_check_parent_transition`, `_check_run_transition`, `_run_number`. Finding
+  family `transition.*`: `card-deleted`, `number-reused`, `field-changed`,
+  `status-reverted`, `bad-status-transition`, `retirement-freeze-broken`,
+  `outcome-changed`, `body-changed`.
 - `_check_links`: aliases forbidden; links must point at the parent or a
   sibling run in the allowed direction.
 - `_parse`, `_render`, `_compare` (reports the first differing line as
@@ -308,8 +322,9 @@ Depends on: `cards`, public `vault.ignored` / `vault.safe_path` / `VaultError`,
 `json`. Files `hunt init` adds to a vault, each written only if absent.
 
 - `GITATTRIBUTES` (`* text=auto eol=lf`), `GITIGNORE`, `WORKFLOW`
-  (`.github/workflows/hunt.yml`: a `validate` job running `hunt validate` and a
-  `line-endings` job; the merge-time transition check is a placeholder step),
+  (`.github/workflows/hunt.yml`: a `validate` job running `hunt validate` and,
+  on a pull request, `hunt validate --against origin/main`, plus a
+  `line-endings` job),
   `APP`, `CORE_PLUGINS`, `TYPES` (Obsidian settings: frontmatter shown as
   source, every key typed `text`, system trash, unsupported files hidden).
 - `_json(value)`: two-space indented, newline-terminated JSON.
@@ -347,10 +362,10 @@ listed for a future pass, roughly by usefulness.
 1. **`vault.tracked_blobs` spawns one `git show` per tracked file.** On a large
    vault `hunt validate` will be dominated by process start-up. `git cat-file
    --batch` fed from `ls-tree` would read every blob in one process.
-2. **Transition validation is unimplemented.** card-spec 8.2 (`hunt validate
-   --against <rev>`) is tracked in `TODO.md`; the scaffolded workflow carries an
-   echo placeholder step. Cross-branch numbering conflicts are therefore only
-   caught after merge.
+2. **Applied:** card-spec 8.2 is implemented as `hunt validate --against <rev>`
+   and the scaffolded workflow runs it against `origin/main` on every pull
+   request. It compares parsed cards, so a card that does not parse is left to
+   snapshot validation rather than reported twice.
 3. **Applied:** `scaffold.py` now calls public `vault.ignored`; it no longer
    imports private `vault._git` or duplicates the ignore check.
 4. **Applied:** category spellings now live in `cards.py`; `complete` and `cli`

@@ -79,12 +79,11 @@ jobs:
       - name: hunt validate
         run: uvx --from "git+https://github.com/dotknewt/hunt@$HUNT_REF" hunt validate
       - name: transition validation against main (card-spec 8.2)
-        # Not enforced yet: `hunt validate --against <rev>` does not exist.
-        # When it does, replace the echo with:
-        #   uvx --from "git+https://github.com/dotknewt/hunt@$HUNT_REF" \\
-        #     hunt validate --against origin/main
         if: github.event_name == 'pull_request'
-        run: echo "transition validation (card-spec 8.2) is not implemented yet"
+        run: |
+          git fetch --no-tags --quiet origin main
+          uvx --from "git+https://github.com/dotknewt/hunt@$HUNT_REF" \\
+            hunt validate --against origin/main
 
   line-endings:
     # vault-spec 8, independent of hunt itself: no committed blob on the branch

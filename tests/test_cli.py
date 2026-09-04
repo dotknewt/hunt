@@ -768,3 +768,36 @@ def test_run_rejects_a_malformed_scope(vault, scope):
     assert result.returncode == 2
     assert "invalid scope" in result.stderr
     assert not card(vault, "HNT-001.001.md").exists()
+
+
+# --- parent cadence -----------------------------------------------------------
+
+
+def test_new_records_a_cadence_when_given(vault):
+    assert hunt(vault, "init").returncode == 0
+    result = hunt(vault, "new", "-c", "h", "--name", NAME, "--cadence", "30")
+    assert result.returncode == 0, result.stderr
+
+    front, _ = split_card(card(vault, "HNT-001.md").read_text())
+    assert "cadence: 30" in front
+    assert front[-1] == "cadence: 30", "cadence is the last key on a run-less parent"
+    assert hunt(vault, "validate").returncode == 0
+    assert_clean(vault)
+
+
+def test_new_omits_cadence_when_not_given(vault):
+    assert hunt(vault, "init").returncode == 0
+    assert hunt(vault, "new", "-c", "h", "--name", NAME).returncode == 0
+
+    front, _ = split_card(card(vault, "HNT-001.md").read_text())
+    assert not [line for line in front if line.startswith("cadence")]
+    assert hunt(vault, "validate").returncode == 0
+
+
+@pytest.mark.parametrize("cadence", ["0", "-1", "1.5", "abc"])
+def test_new_rejects_a_malformed_cadence(vault, cadence):
+    assert hunt(vault, "init").returncode == 0
+    result = hunt(vault, "new", "-c", "h", "--name", NAME, "--cadence", cadence)
+    assert result.returncode == 2
+    assert "invalid cadence" in result.stderr
+    assert not card(vault, "HNT-001.md").exists()

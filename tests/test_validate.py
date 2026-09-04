@@ -293,3 +293,39 @@ def test_scope_on_a_parent_card_is_an_unknown_key(good):
     """scope is a run field; the parent schema stays closed against it."""
     edit(good, BSL, "status: active\n", 'status: active\nscope: "windows"\n')
     assert "frontmatter.unknown-key" in codes(good.path)
+
+
+# --- parent cadence -----------------------------------------------------------
+
+
+def test_cadence_is_optional(good):
+    """card-spec 5.1: the reference vault validates clean without the field."""
+    assert validate_vault(good.path) == []
+
+
+def test_cadence_value_is_never_checked_against_a_list(good):
+    """No vocabulary exists; any positive integer is as valid as another."""
+    edit(good, BSL, "status: active\n", "status: active\ncadence: 9001\n")
+    assert validate_vault(good.path) == []
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "1.5", '"30"', "[30]"])
+def test_malformed_cadence_is_reported(good, value):
+    edit(good, BSL, "status: active\n", f"status: active\ncadence: {value}\n")
+    assert set(codes(good.path)) & {"frontmatter.bad-cadence", "frontmatter.bad-type"}
+
+
+def test_cadence_before_status_is_a_key_order_finding(good):
+    edit(
+        good,
+        BSL,
+        "status: active\n",
+        "cadence: 30\nstatus: active\n",
+    )
+    assert "frontmatter.key-order" in codes(good.path)
+
+
+def test_cadence_on_a_run_card_is_an_unknown_key(good):
+    """cadence is a parent field; the run schema stays closed against it."""
+    edit(good, RUN1, "status: complete\n", "status: complete\ncadence: 30\n")
+    assert "frontmatter.unknown-key" in codes(good.path)

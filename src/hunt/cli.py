@@ -82,6 +82,20 @@ def _scope(value):
     return value
 
 
+def _cadence(value):
+    try:
+        cadence = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            "invalid cadence %r (expected a positive integer number of days)" % value
+        ) from None
+    if not cards.is_valid_cadence(cadence):
+        raise argparse.ArgumentTypeError(
+            "invalid cadence %r (expected a positive integer number of days)" % value
+        )
+    return cadence
+
+
 def _run_date(value):
     if not cards.is_valid_date(value):
         raise argparse.ArgumentTypeError("invalid date %r (expected YYYY-MM-DD)" % value)
@@ -216,7 +230,7 @@ def cmd_new(args, today):
     number = cards.next_parent_number(config.vault_path, args.category)
     parent_id = cards.parent_id(args.category, number)
     # Not an argparse default: the id is unknown until after allocation.
-    parent = cards.new_parent(parent_id, args.name or parent_id)
+    parent = cards.new_parent(parent_id, args.name or parent_id, cadence=args.cadence)
     path = _write(
         config,
         cards.parent_path(config.vault_path, parent_id),
@@ -365,6 +379,12 @@ def build_parser():
         type=_task_name,
         metavar="<task name>",
         help="task name; defaults to the allocated parent id",
+    )
+    new.add_argument(
+        "--cadence",
+        type=_cadence,
+        metavar="<days>",
+        help="recurrence interval in days; omitted if unset",
     )
     new.set_defaults(func=cmd_new)
 

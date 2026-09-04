@@ -30,6 +30,7 @@ _CARD_ERROR_CODES = {
     "FM-BAD-CATEGORY": "frontmatter.bad-category",
     "FM-BAD-TAG": "frontmatter.bad-tag",
     "FM-BAD-SCOPE": "frontmatter.bad-scope",
+    "FM-BAD-CADENCE": "frontmatter.bad-cadence",
     "BODY-BAD-H1": "render.bad-h1",
     "BODY-BAD-TASK-NAME": "render.bad-task-name",
     "BODY-MISSING-SECTION": "render.missing-section",
@@ -570,6 +571,8 @@ def _check_values(path, data, parent, is_index, findings):
             )
     if not is_index and "scope" in data:
         _check_scope(path, data, findings)
+    if is_index and "cadence" in data:
+        _check_cadence(path, data, findings)
     if "status" in data:
         value = data["status"]
         statuses = cards.PARENT_STATUSES if is_index else cards.RUN_STATUSES
@@ -683,6 +686,23 @@ def _check_scope(path, data, findings):
                 "frontmatter.bad-scope",
                 f"scope {_show(value)} must be a single non-empty line of printable "
                 "ASCII, without a double quote, a backslash, or surrounding spaces",
+            )
+        )
+
+
+def _check_cadence(path, data, findings):
+    value = data["cadence"]
+    if not isinstance(value, int) or isinstance(value, bool):
+        findings.append(
+            Finding(path, "frontmatter.bad-type", "cadence must be an unquoted integer")
+        )
+        return
+    if not cards.is_valid_cadence(value):
+        findings.append(
+            Finding(
+                path,
+                "frontmatter.bad-cadence",
+                f"cadence {_show(value)} must be a positive integer number of days",
             )
         )
 

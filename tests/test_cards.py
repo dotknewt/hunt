@@ -374,3 +374,59 @@ def test_a_malformed_scope_in_an_existing_card_is_rejected_on_parse():
     text = cards.render_run(cards.new_run("BSL-002.001", "2026-09-01", None, "windows"))
     with pytest.raises(CardError):
         cards.parse_run(text.replace('scope: "windows"', "scope: 7"))
+
+
+# --- parent cadence -----------------------------------------------------------
+
+
+def test_cadence_is_optional_and_absent_by_default():
+    """card-spec 5.1: an omitted cadence leaves no key behind, so every card
+    written before v6 still renders byte for byte."""
+    parent = cards.new_parent("BSL-002", "A task with no runs yet")
+    assert parent.cadence is None
+    assert "cadence" not in cards.render_parent(parent, [])
+
+
+def test_cadence_renders_after_status_and_round_trips():
+    parent = cards.new_parent("BSL-002", "A task run every 30 days", cadence=30)
+    text = cards.render_parent(parent, [])
+    keys = cards.frontmatter_key_order(text)
+    assert keys == ["id", "category", "tags", "status", "cadence"]
+    assert "cadence: 30\n" in text
+    assert cards.parse_parent(text).cadence == 30
+    assert cards.render_parent(cards.parse_parent(text), []) == text
+
+
+def test_cadence_renders_between_status_and_latest_run():
+    parent = cards.new_parent("BSL-002", "A task with a run", cadence=7)
+    run = cards.new_run("BSL-002.001", "2026-09-01")
+    text = cards.render_parent(parent, [run])
+    keys = cards.frontmatter_key_order(text)
+    assert keys == [
+        "id",
+        "category",
+        "tags",
+        "status",
+        "cadence",
+        "latest_run",
+        "latest_run_date",
+    ]
+
+
+@pytest.mark.parametrize("cadence", [1, 7, 30, 365])
+def test_cadence_takes_any_well_formed_value(cadence):
+    """The value set is deliberately open beyond "positive integer"."""
+    parent = cards.new_parent("BSL-002", "A task", cadence=cadence)
+    assert cards.parse_parent(cards.render_parent(parent, [])).cadence == cadence
+
+
+@pytest.mark.parametrize("cadence", [0, -1, 1.5, "30", True, False])
+def test_cadence_rejects_a_malformed_value(cadence):
+    with pytest.raises(CardError):
+        cards.new_parent("BSL-002", "A task", cadence=cadence)
+
+
+def test_a_malformed_cadence_in_an_existing_card_is_rejected_on_parse():
+    text = cards.render_parent(cards.new_parent("BSL-002", "A task", cadence=30), [])
+    with pytest.raises(CardError):
+        cards.parse_parent(text.replace("cadence: 30", "cadence: -1"))

@@ -910,13 +910,15 @@ def _ordered(findings):
 _RUN_STATUS_ORDER = {status: index for index, status in enumerate(cards.RUN_STATUSES)}
 
 
-def validate_transition(vault_path, revision):
+def validate_transition(vault_path, revision, label=None):
     """Findings for the working tree, read as a proposed tree, against the
     accepted tree recorded at `revision`. Snapshot findings are not repeated
-    here; the CLI runs validate_vault as well."""
+    here; the CLI runs validate_vault as well. `label` is how the findings
+    name the revision when the caller already resolved it to a sha."""
     vault = Path(vault_path)
     findings = []
     accepted = _revision_cards(vault, revision)
+    revision = label or revision
     proposed = _tree_cards(vault)
     for name in sorted(accepted):
         path = vault / name

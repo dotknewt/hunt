@@ -82,6 +82,10 @@ def _scope(value):
             "no space, each a single non-empty line of printable ASCII, without a "
             "double quote, a backslash, or surrounding spaces)" % value
         )
+    if len(set(items)) != len(items):
+        # Silently dropping the repeat would record something other than what
+        # was typed; the card is immutable once accepted, so say so up front.
+        raise argparse.ArgumentTypeError("invalid scope %r (an item is repeated)" % value)
     return items
 
 
@@ -286,10 +290,12 @@ def cmd_validate(args, today):
         raise VaultError("vault is not a git repository: %s" % config.vault_path)
     if args.against is not None:
         # Resolve first so a typo is an error, not an all-clear against a tree
-        # git never found. The user's spelling is what the findings quote.
-        vault.resolve_revision(config.vault_path, args.against)
+        # git never found, and read at the resolved commit so a ref that moves
+        # mid-run is not consulted twice. The user's spelling is what the
+        # findings quote.
+        sha = vault.resolve_revision(config.vault_path, args.against)
         findings = validate_vault(config.vault_path) + validate_transition(
-            config.vault_path, args.against
+            config.vault_path, sha, label=args.against
         )
     elif args.id is None:
         findings = validate_vault(config.vault_path)

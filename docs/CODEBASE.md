@@ -294,8 +294,9 @@ Pipeline helpers
 - `_check_frontmatter`, `_check_keys` (duplicates, forbidden, unknown, missing,
   order), `_check_values`, `_check_category`, `_check_tags`, `_check_scope`
   (a list of items, or a v5 scalar read as one item).
-- `validate_transition(vault_path, revision)`: card-spec 8.2, invariants 7-10
-  between the working tree and the tree recorded at `revision`. Helpers
+- `validate_transition(vault_path, revision, label=None)`: card-spec 8.2,
+  invariants 7-10 between the working tree and the tree recorded at
+  `revision`; findings quote `label` (the spelling the user typed) when given. Helpers
   `_revision_cards`, `_tree_cards`, `_is_card_name`,
   `_check_parent_transition`, `_check_run_transition`, `_run_number`. Finding
   family `transition.*`: `card-deleted`, `number-reused`, `field-changed`,

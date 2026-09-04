@@ -785,6 +785,8 @@ def test_run_omits_scope_when_not_given(vault):
         " windows",
         'say "windows"',
         "back\\slash",
+        "windows,windows",
+        "windows,servers,windows",
     ],
 )
 def test_run_rejects_a_malformed_scope(vault, scope):
@@ -840,6 +842,17 @@ def test_validate_against_head_is_clean_for_an_untouched_vault(vault):
     result = hunt(vault, "validate", "--against", "HEAD")
     assert result.returncode == 0, result.stdout + result.stderr
     assert result.stdout == ""
+
+
+def test_validate_against_quotes_the_spelling_given(vault):
+    assert hunt(vault, "init").returncode == 0
+    assert hunt(vault, "new", "-c", "h", "--name", NAME).returncode == 0
+    assert hunt(vault, "run", "--id", "HNT-001", "--date", DATE1).returncode == 0
+    card(vault, "HNT-001.001.md").unlink()
+
+    result = hunt(vault, "validate", "--against", "HEAD")
+    assert result.returncode == 1
+    assert "recorded at HEAD " in result.stdout, result.stdout
 
 
 def test_validate_against_head_rejects_a_deleted_card(vault):

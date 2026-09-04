@@ -148,3 +148,23 @@ def test_an_empty_revision_reports_nothing(accepted):
     """The root commit holds only .gitattributes: nothing was accepted yet."""
     root = accepted.git("rev-list", "--max-parents=0", "HEAD").strip()
     assert validate_transition(accepted.path, root) == []
+
+
+def test_a_retired_card_may_not_move_its_latest_run(accepted):
+    """Invariant 10: retirement freezes the latest_run pair, so a run recorded
+    after the card was retired is a finding even though latest_run advanced."""
+    edit(accepted, BSL, "status: active", "status: retired")
+    accepted.git("add", "-A")
+    accepted.git("commit", "-q", "-m", "retired")
+    edit(accepted, BSL, "latest_run: BSL-001.002", "latest_run: BSL-001.003")
+    edit(accepted, BSL, 'latest_run_date: "2026-08-31"', 'latest_run_date: "2026-09-30"')
+    assert "transition.retirement-freeze-broken" in codes(accepted)
+
+
+def test_a_card_whose_fields_are_invalid_is_left_to_snapshot_validation(accepted):
+    """latest_run is the one field parse_parent does not validate eagerly. An
+    invalid card is a snapshot finding, never a transition one, so the whole
+    card is skipped rather than half-checked."""
+    edit(accepted, BSL, "latest_run: BSL-001.002", "latest_run: [not, a, string]")
+    edit(accepted, BSL, "tags: [dns, baseline, example]", "tags: [dns]")
+    assert validate_transition(accepted.path, "HEAD") == []

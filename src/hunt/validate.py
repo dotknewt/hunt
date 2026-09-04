@@ -935,16 +935,19 @@ def validate_transition(vault_path, revision):
             if is_index:
                 before = cards.parse_parent(accepted[name])
                 after = cards.parse_parent(proposed[name])
+                found = _check_parent_transition(path, revision, before, after)
             else:
                 before = cards.parse_run(accepted[name])
                 after = cards.parse_run(proposed[name])
+                found = _check_run_transition(path, revision, before, after)
         except cards.CardError:
-            # A card that does not parse is already a snapshot finding.
+            # A card that does not parse, or whose fields do not validate, is
+            # already a snapshot finding. The checks run inside this guard so
+            # that a field validating lazily -- latest_run and latest_run_date
+            # are the two parse_parent never touches -- skips the whole card
+            # rather than escaping with half of it reported.
             continue
-        if is_index:
-            _check_parent_transition(path, revision, before, after, findings)
-        else:
-            _check_run_transition(path, revision, before, after, findings)
+        findings.extend(found)
     return _ordered(findings)
 
 
@@ -999,8 +1002,9 @@ def _is_card_name(name):
     return cards.is_valid_run_id(stem) and stem.split(".")[0] == parts[1]
 
 
-def _check_parent_transition(path, revision, before, after, findings):
+def _check_parent_transition(path, revision, before, after):
     """card-spec 7, invariants 7, 9 and 10 for one parent index card."""
+    findings = []
     if after.name != before.name:
         findings.append(
             Finding(
@@ -1072,11 +1076,13 @@ def _check_parent_transition(path, revision, before, after, findings):
                 f"{after.latest_run} since {revision}; it only ever advances",
             )
         )
+    return findings
 
 
-def _check_run_transition(path, revision, before, after, findings):
+def _check_run_transition(path, revision, before, after):
     """card-spec 7, invariant 9 for one run card: only status advances, and the
     Outcome may only be appended to."""
+    findings = []
     for field, was, now in (
         ("id", before.id, after.id),
         ("parent", before.parent, after.parent),
@@ -1114,6 +1120,7 @@ def _check_run_transition(path, revision, before, after, findings):
                 "appended to",
             )
         )
+    return findings
 
 
 def _run_number(value):

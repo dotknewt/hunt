@@ -59,6 +59,18 @@ def _card_id(value):
     )
 
 
+def _revision(value):
+    """Syntax only: whether a revision exists is git's answer, given later by
+    vault.resolve_revision. Rejected here are the spellings git could never be
+    asked about -- nothing to resolve, or a leading dash it would read as one
+    of its own options."""
+    if value.strip() and not value.startswith("-"):
+        return value
+    raise argparse.ArgumentTypeError(
+        "not a revision: %r (expected e.g. origin/main, a tag, or a sha)" % value
+    )
+
+
 def _scope(value):
     """--scope windows,servers -> ["windows", "servers"] (card-spec 6.1). The
     separator is a bare comma: an item may hold spaces, so splitting on ", "
@@ -411,6 +423,7 @@ def build_parser():
     )
     scope_of_run.add_argument(
         "--against",
+        type=_revision,
         metavar="<rev>",
         help="also check the transition from a git revision, e.g. origin/main "
         "(card-spec 8.2)",

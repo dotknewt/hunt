@@ -879,3 +879,10 @@ def test_validate_refuses_id_and_against_together(vault):
     result = hunt(vault, "validate", "--id", "HNT-001", "--against", "HEAD")
     assert result.returncode == 2
     assert "not allowed with" in result.stderr
+
+
+def test_validate_rejects_an_empty_against(vault):
+    assert hunt(vault, "init").returncode == 0
+    result = hunt(vault, "validate", "--against", "")
+    assert result.returncode == 2
+    assert "not a revision" in result.stderr

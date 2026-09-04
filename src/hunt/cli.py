@@ -60,12 +60,17 @@ def _card_id(value):
 
 
 def _scope(value):
-    if not cards.is_valid_scope(value):
+    """--scope windows,servers -> ["windows", "servers"] (card-spec 6.1). The
+    separator is a bare comma: an item may hold spaces, so splitting on ", "
+    would make "windows, servers" mean two different things by one keystroke."""
+    items = value.split(",")
+    if not all(cards.is_valid_scope(item) for item in items):
         raise argparse.ArgumentTypeError(
-            "invalid scope %r (expected a single non-empty line of printable ASCII, "
-            "without a double quote, a backslash, or surrounding spaces)" % value
+            "invalid scope %r (expected one or more items separated by a comma with "
+            "no space, each a single non-empty line of printable ASCII, without a "
+            "double quote, a backslash, or surrounding spaces)" % value
         )
-    return value
+    return items
 
 
 def _cadence(value):
@@ -385,8 +390,8 @@ def build_parser():
     run.add_argument(
         "--scope",
         type=_scope,
-        metavar="<scope>",
-        help="free-text scope of the run, e.g. 'windows servers'; omitted if unset",
+        metavar="<scope>[,<scope>...]",
+        help="comma-separated free-text scope, e.g. windows,servers; omitted if unset",
     )
     run.set_defaults(func=cmd_run)
 

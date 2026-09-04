@@ -174,14 +174,22 @@ class Run:
 
     @property
     def scope(self):
+        """card-spec 6.1: one or more free-text items. A v5 scalar is read as a
+        one-item list; render_run writes back whichever spelling the file used,
+        so a run accepted under v5 stays byte for byte itself (invariant 9)."""
         if "scope" not in self.frontmatter:
             return None
         value = self.frontmatter["scope"]
-        if not isinstance(value, str):
-            raise CardError("scope must be a string", "FM-BAD-TYPE")
-        if not is_valid_scope(value):
+        items = [value] if isinstance(value, str) else value
+        if not isinstance(items, list) or not all(
+            isinstance(item, str) for item in items
+        ):
+            raise CardError(
+                "scope must be a list of strings, or a string", "FM-BAD-TYPE"
+            )
+        if not is_valid_scope_list(items):
             raise CardError(f"{value!r} is not a valid scope", "FM-BAD-SCOPE")
-        return value
+        return list(items)
 
 
 def _string(frontmatter, key):
@@ -232,6 +240,14 @@ def is_valid_scope(value):
     if not isinstance(value, str) or value != value.strip():
         return False
     return SCOPE_RE.fullmatch(value) is not None
+
+
+def is_valid_scope_list(values):
+    """card-spec 6.1: one or more items, each well formed. An empty list is not
+    an "unset scope"; the way to record no scope is to omit the key."""
+    if not isinstance(values, list) or not values:
+        return False
+    return all(is_valid_scope(item) for item in values)
 
 
 def is_valid_cadence(value):
@@ -510,8 +526,13 @@ def new_run(run, run_date, previous_run=None, scope=None):
     ident = parse_run_id(run)
     if not is_valid_date(run_date):
         raise CardError(f"{run_date!r} is not a YYYY-MM-DD date", "FM-BAD-DATE")
-    if scope is not None and not is_valid_scope(scope):
-        raise CardError(f"{scope!r} is not a valid scope", "FM-BAD-SCOPE")
+    if scope is not None:
+        # A bare string is a convenience for one item, not a second spelling:
+        # what is stored, and written, is always a list.
+        scope = [scope] if isinstance(scope, str) else scope
+        if not is_valid_scope_list(scope):
+            raise CardError(f"{scope!r} is not a valid scope", "FM-BAD-SCOPE")
+        scope = list(scope)
     frontmatter = {"id": run, "parent": ident.parent, "run_date": run_date}
     if ident.number == 1:
         if previous_run is not None:
@@ -763,9 +784,16 @@ def render_run(run):
     if previous is not None:
         keys.append(f"previous_run: {previous}")
     keys.append(f"status: {run.status}")
-    scope = run.scope
+    run.scope  # a present value must be well formed before it is written back
+    scope = run.frontmatter.get("scope")
     if scope is not None:
-        keys.append(f'scope: "{scope}"')
+        if isinstance(scope, str):
+            # A v5 card is written back as it was found: an accepted run's
+            # fields must not change (card-spec 7, invariant 9).
+            keys.append(f'scope: "{scope}"')
+        else:
+            items = ", ".join(f'"{item}"' for item in scope)
+            keys.append(f"scope: [{items}]")
     text = _frontmatter(keys)
     text += f"\nPart of: [[{run.parent}]]\n"
     if previous is not None:

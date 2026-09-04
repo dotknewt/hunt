@@ -740,14 +740,27 @@ def test_run_records_a_scope_when_given(vault):
     assert hunt(vault, "init").returncode == 0
     assert hunt(vault, "new", "-c", "h", "--name", NAME).returncode == 0
     result = hunt(
-        vault, "run", "--id", "HNT-001", "--date", DATE1, "--scope", "windows servers"
+        vault, "run", "--id", "HNT-001", "--date", DATE1, "--scope", "windows,servers"
     )
     assert result.returncode == 0, result.stderr
 
     front, _ = split_card(card(vault, "HNT-001.001.md").read_text())
-    assert front[-1] == 'scope: "windows servers"', "scope is the last key"
+    assert front[-1] == 'scope: ["windows", "servers"]', "scope is the last key"
     assert hunt(vault, "validate").returncode == 0
     assert_clean(vault)
+
+
+def test_run_records_a_one_item_scope(vault):
+    assert hunt(vault, "init").returncode == 0
+    assert hunt(vault, "new", "-c", "h", "--name", NAME).returncode == 0
+    result = hunt(
+        vault, "run", "--id", "HNT-001", "--date", DATE1, "--scope", "windows"
+    )
+    assert result.returncode == 0, result.stderr
+
+    front, _ = split_card(card(vault, "HNT-001.001.md").read_text())
+    assert front[-1] == 'scope: ["windows"]'
+    assert hunt(vault, "validate").returncode == 0
 
 
 def test_run_omits_scope_when_not_given(vault):
@@ -760,7 +773,20 @@ def test_run_omits_scope_when_not_given(vault):
     assert hunt(vault, "validate").returncode == 0
 
 
-@pytest.mark.parametrize("scope", ["", " windows", 'say "windows"', "back\\slash"])
+@pytest.mark.parametrize(
+    "scope",
+    [
+        "",
+        ",",
+        "windows,",
+        ",windows",
+        "windows,,servers",
+        "windows, servers",
+        " windows",
+        'say "windows"',
+        "back\\slash",
+    ],
+)
 def test_run_rejects_a_malformed_scope(vault, scope):
     assert hunt(vault, "init").returncode == 0
     assert hunt(vault, "new", "-c", "h", "--name", NAME).returncode == 0

@@ -705,20 +705,26 @@ def _check_tags(path, data, findings):
 def _check_scope(path, data, findings):
     """card-spec 6.1: scope is free text, so only its shape is checked here.
     No value set exists, and inventing one in the validator would be exactly
-    the enforcement the spec withholds."""
+    the enforcement the spec withholds. A v5 scalar is still accepted."""
     value = data["scope"]
-    if not isinstance(value, str):
+    items = [value] if isinstance(value, str) else value
+    if not isinstance(items, list) or not all(isinstance(item, str) for item in items):
         findings.append(
-            Finding(path, "frontmatter.bad-type", "scope must be a quoted string")
+            Finding(
+                path,
+                "frontmatter.bad-type",
+                "scope must be a list of quoted strings, or one quoted string",
+            )
         )
         return
-    if not cards.is_valid_scope(value):
+    if not cards.is_valid_scope_list(items):
         findings.append(
             Finding(
                 path,
                 "frontmatter.bad-scope",
-                f"scope {_show(value)} must be a single non-empty line of printable "
-                "ASCII, without a double quote, a backslash, or surrounding spaces",
+                f"scope {_show(value)} must be one or more items, each a single "
+                "non-empty line of printable ASCII, without a double quote, a "
+                "backslash, or surrounding spaces",
             )
         )
 

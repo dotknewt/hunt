@@ -65,7 +65,7 @@ class _ParentScan:
 
     parent: str
     directory: Path
-    index: Path = None
+    index: Path | None = None
     runs: dict = field(default_factory=dict)
 
 
@@ -327,7 +327,8 @@ def _check_parent_numbers(vault, code, scans, findings):
     numbers = sorted(cards.parse_parent_id(scan.parent).number for scan in scans)
     if not numbers:
         return
-    missing = [number for number in range(1, numbers[-1] + 1) if number not in set(numbers)]
+    present = set(numbers)
+    missing = [number for number in range(1, numbers[-1] + 1) if number not in present]
     if missing:
         findings.append(
             Finding(

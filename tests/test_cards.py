@@ -277,7 +277,7 @@ Part of: [[BSL-002]]
 ## Outcome
 """
     block, _ = cards.split_frontmatter(source)
-    frontmatter = cards._load_frontmatter(block)
+    frontmatter = cards.load_frontmatter(block)
     assert isinstance(frontmatter["run_date"], datetime.date)
     assert not isinstance(frontmatter["run_date"], str)
 

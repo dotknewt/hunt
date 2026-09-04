@@ -272,15 +272,9 @@ def is_valid_run_id(value):
     return True
 
 
-def load_frontmatter(block):
-    """The one frontmatter loader: rejects duplicate keys and keeps an unquoted
-    date a date object so callers can report it."""
-    return _load_frontmatter(block)
-
-
 def find_links(text):
     """Raw targets of every [[...]] link, including any "|alias" or "#anchor"."""
-    return [raw for raw in _LINK_RE.findall(text)]
+    return _LINK_RE.findall(text)
 
 
 def find_alias_links(text):
@@ -421,7 +415,8 @@ def _next_number(numbers, subject):
     into or past it."""
     present = sorted(set(numbers))
     if present and present != list(range(1, len(present) + 1)):
-        missing = [n for n in range(1, present[-1]) if n not in set(present)]
+        present_numbers = set(present)
+        missing = [n for n in range(1, present[-1]) if n not in present_numbers]
         raise CardError(
             f"{subject} is missing number(s) {', '.join('%03d' % n for n in missing)}; "
             "refusing to allocate, run 'hunt validate'",
@@ -585,7 +580,7 @@ def frontmatter_key_order(text):
     return keys
 
 
-def _load_frontmatter(block):
+def load_frontmatter(block):
     try:
         loaded = yaml.load(block, Loader=_FrontmatterLoader)
     except yaml.constructor.ConstructorError as exc:
@@ -606,7 +601,7 @@ def parse_parent(text):
     of the form "# ID - name", then "## Why", "## Latest findings",
     "## Run history" in that order. Anything after those is kept as extra."""
     block, body = split_frontmatter(text)
-    frontmatter = _load_frontmatter(block)
+    frontmatter = load_frontmatter(block)
     card = Parent(frontmatter)
     _fields(card, PARENT_REQUIRED_KEYS)
     card.cadence  # optional, but a present value must still be well formed
@@ -647,7 +642,7 @@ def parse_run(text):
     "Previous: [[run]]" line that must agree with previous_run, then exactly
     one "## Outcome"."""
     block, body = split_frontmatter(text)
-    frontmatter = _load_frontmatter(block)
+    frontmatter = load_frontmatter(block)
     card = Run(frontmatter)
     _fields(card, RUN_REQUIRED_KEYS)
     card.scope  # optional, but a present value must still be well formed

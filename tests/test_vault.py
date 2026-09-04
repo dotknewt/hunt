@@ -192,3 +192,37 @@ def test_commit_refuses_a_detached_head(vault):
     with pytest.raises(VaultError, match="detached HEAD"):
         vaultmod.commit(vault.path, [target], "hunt: test", vault.branch)
     assert run_git(vault.path, "log", "--format=%s").splitlines() == ["root"]
+
+
+# --- tracked_blobs -----------------------------------------------------------
+
+
+def test_tracked_blobs_reads_every_blob_with_one_batch_process(vault, monkeypatch):
+    first = vault.path / "first.txt"
+    first.write_bytes(b"first\x00blob\n")
+    second = vault.path / "nested" / "second.txt"
+    second.parent.mkdir()
+    second.write_bytes(b"second blob\n")
+    run_git(vault.path, "add", "--", "first.txt", "nested/second.txt")
+    run_git(vault.path, "commit", "-q", "-m", "two blobs")
+
+    real_run = vaultmod.subprocess.run
+    commands = []
+
+    def recording_run(command, *args, **kwargs):
+        if command[:3] == ["git", "-C", str(vault.path)]:
+            commands.append(command[3:])
+        return real_run(command, *args, **kwargs)
+
+    monkeypatch.setattr(vaultmod.subprocess, "run", recording_run)
+
+    blobs = vaultmod.tracked_blobs(vault.path)
+
+    assert blobs == [
+        (".gitattributes", b"* text=auto eol=lf\n"),
+        ("first.txt", b"first\x00blob\n"),
+        ("nested/second.txt", b"second blob\n"),
+    ]
+    assert len(commands) == 2
+    assert commands[0][:3] == ["ls-tree", "-r", "-z"]
+    assert commands[1] == ["cat-file", "--batch"]

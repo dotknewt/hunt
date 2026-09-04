@@ -401,21 +401,50 @@ def tracked_blobs(vault: Path, revision: str = "HEAD") -> list[tuple[str, bytes]
     check-in and the file on disk can no longer show the problem.
     """
     vault = Path(vault)
-    proc = _git(vault, "ls-tree", "-r", "-z", "--name-only", revision, check=False)
-    if proc.returncode != 0:
+    tree = _git(vault, "ls-tree", "-r", "-z", revision, check=False)
+    if tree.returncode != 0:
         return []
-    names = [name for name in proc.stdout.split("\0") if name]
+
+    entries = []
+    for record in tree.stdout.split("\0"):
+        if not record:
+            continue
+        metadata, name = record.split("\t", 1)
+        _, kind, object_id = metadata.split(" ", 2)
+        if kind == "blob":
+            entries.append((name, object_id))
+    if not entries:
+        return []
+
+    try:
+        batch = subprocess.run(
+            ["git", "-C", str(vault), "cat-file", "--batch"],
+            input="".join(object_id + "\n" for _, object_id in entries).encode("ascii"),
+            capture_output=True,
+        )
+    except FileNotFoundError:
+        raise VaultError("git is not installed or not on PATH") from None
+    if batch.returncode != 0:
+        detail = batch.stderr.decode(errors="replace").strip() or f"exit status {batch.returncode}"
+        raise VaultError(f"git cat-file --batch: {detail}")
+
     blobs = []
-    for name in names:
-        try:
-            show = subprocess.run(
-                ["git", "-C", str(vault), "show", f"{revision}:{name}"],
-                capture_output=True,
-            )
-        except FileNotFoundError:
-            raise VaultError("git is not installed or not on PATH") from None
-        if show.returncode == 0:
-            blobs.append((name, show.stdout))
+    offset = 0
+    for name, object_id in entries:
+        header_end = batch.stdout.find(b"\n", offset)
+        if header_end < 0:
+            raise VaultError("git cat-file --batch: incomplete response")
+        header = batch.stdout[offset:header_end].decode("ascii", errors="replace")
+        parts = header.split()
+        if len(parts) != 3 or parts[0] != object_id or parts[1] != "blob":
+            raise VaultError(f"git cat-file --batch: unexpected response {header!r}")
+        size = int(parts[2])
+        start = header_end + 1
+        end = start + size
+        if end >= len(batch.stdout) or batch.stdout[end : end + 1] != b"\n":
+            raise VaultError("git cat-file --batch: incomplete blob")
+        blobs.append((name, batch.stdout[start:end]))
+        offset = end + 1
     return blobs
 
 

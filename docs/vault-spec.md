@@ -89,6 +89,10 @@ The optional keys are Git settings for the vault repository alone. When
 configured, initialization (Section 5) writes each into the vault's own
 `.git/config` - the `origin` remote's URL, and the local `user.name` and
 `user.email` - and MUST NOT touch the user's global or system Git configuration.
+Initialization MUST additionally set `push.autoSetupRemote` to `true` in the
+vault's own `.git/config`, whether or not any optional key is configured, so
+that the human's first push of `VAULT_BRANCH` (Section 6) needs no
+`--set-upstream`; the same restriction to the vault's own `.git/config` applies.
 They exist so that a vault can carry an identity and a remote of its own,
 distinct from whatever the rest of the machine uses. A configured
 `VAULT_REMOTE` MUST NOT begin with `-` and MUST be printable ASCII with no

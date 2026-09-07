@@ -71,9 +71,10 @@ hunt validate
 `hunt init` writes any `hunt.conf` value given on the command line (prompting
 before replacing one that is already set, or `--yes` to skip the prompt),
 creates the vault and its `main` and working branches if they do not exist,
-applies any configured `VAULT_REMOTE`, `GIT_USER_NAME` and `GIT_USER_EMAIL` to
-the vault's `.git/config` before the first commit (reporting each setting it
-changed, and changing nothing that already matches), and
+sets `push.autoSetupRemote=true` and applies any configured `VAULT_REMOTE`,
+`GIT_USER_NAME` and `GIT_USER_EMAIL` to the vault's `.git/config` before the
+first commit (reporting each setting it changed, and changing nothing that
+already matches), and
 writes the vault scaffold: `.gitattributes`, `.gitignore`, a GitHub Actions
 workflow at `.github/workflows/hunt.yml` and three minimal `.obsidian` configs.
 It never overwrites a file that already exists, so running it again on a

@@ -576,6 +576,7 @@ def test_init_writes_the_optional_git_settings_to_conf_and_the_vault(tmp_path):
     assert 'VAULT_REMOTE="git@github.com:example/vault.git"' in text
     assert 'GIT_USER_NAME="Ada Lovelace"' in text
     assert 'GIT_USER_EMAIL="ada@example.com"' in text
+    assert "configured push.autoSetupRemote=true" in result.stdout
     assert "configured user.name=Ada Lovelace" in result.stdout
     assert "configured remote.origin.url=git@github.com:example/vault.git" in result.stdout
 
@@ -587,6 +588,7 @@ def test_init_writes_the_optional_git_settings_to_conf_and_the_vault(tmp_path):
             check=True,
         ).stdout.strip()
 
+    assert git_in("config", "--local", "push.autoSetupRemote") == "true"
     assert git_in("config", "--local", "user.name") == "Ada Lovelace"
     assert git_in("config", "--local", "user.email") == "ada@example.com"
     assert git_in("config", "--local", "remote.origin.url") == "git@github.com:example/vault.git"

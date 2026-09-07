@@ -8,6 +8,7 @@ from pathlib import Path
 from . import HuntError, cards, complete, scaffold, vault
 from .cards import CardError
 from .config import (
+    CONF_KEYS,
     CONF_NAME,
     ConfigError,
     ConfigUnset,
@@ -173,6 +174,9 @@ def _init_values(args, config, conf):
     requested = (
         ("VAULT_PATH", args.vault_path, lambda value: str(Path(value).expanduser())),
         ("VAULT_BRANCH", args.vault_branch, lambda value: value),
+        ("VAULT_REMOTE", args.remote, lambda value: value),
+        ("GIT_USER_NAME", args.git_user_name, lambda value: value),
+        ("GIT_USER_EMAIL", args.git_user_email, lambda value: value),
     )
     values = {}
     for key, flag, normalize in requested:
@@ -212,14 +216,25 @@ def cmd_init(args, today):
     if config is None:
         # A new file gets the whole schema, empty where nothing was given, so
         # that what it holds is a readable configuration either way.
-        values = {"VAULT_PATH": "", "VAULT_BRANCH": "", **values}
+        values = {key: "" for key in CONF_KEYS} | values
     if values:
         write_config(conf, values)
         print("wrote %s to %s" % (", ".join(sorted(values)), conf))
     config = require_configured(load_config(conf))
 
     prepare = lambda root: scaffold.scaffold(root, warn=_warn)  # noqa: E731
-    in_root_commit = vault.init(config.vault_path, config.vault_branch, prepare=prepare)
+    configured: list[str] = []
+    in_root_commit = vault.init(
+        config.vault_path,
+        config.vault_branch,
+        prepare=prepare,
+        remote=config.vault_remote,
+        user_name=config.git_user_name,
+        user_email=config.git_user_email,
+        configured=configured,
+    )
+    for setting in configured:
+        print("configured %s in %s" % (setting, config.vault_path / ".git" / "config"))
     _sweep(config.vault_path)
     created = in_root_commit or scaffold.scaffold(config.vault_path, warn=_warn)
     if created and not in_root_commit:
@@ -376,6 +391,21 @@ def build_parser():
     )
     init.add_argument(
         "--vault-branch", metavar="<NAME>", help="set VAULT_BRANCH in %s" % CONF_NAME
+    )
+    init.add_argument(
+        "--remote",
+        metavar="<URL>",
+        help="set VAULT_REMOTE in %s: the URL of the vault's origin remote" % CONF_NAME,
+    )
+    init.add_argument(
+        "--git-user-name",
+        metavar="<NAME>",
+        help="set GIT_USER_NAME in %s: the vault's local git user.name" % CONF_NAME,
+    )
+    init.add_argument(
+        "--git-user-email",
+        metavar="<EMAIL>",
+        help="set GIT_USER_EMAIL in %s: the vault's local git user.email" % CONF_NAME,
     )
     init.add_argument(
         "--yes",

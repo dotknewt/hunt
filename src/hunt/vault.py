@@ -86,7 +86,53 @@ def _enclosing_repo(vault: Path) -> Path | None:
     return None if top_path == Path(vault).resolve() else top_path
 
 
-def init(vault: Path, branch: str, prepare=None) -> list[Path]:
+def configure(
+    vault: Path,
+    *,
+    remote: str | None = None,
+    user_name: str | None = None,
+    user_email: str | None = None,
+) -> list[str]:
+    """Write the optional hunt.conf git settings into the vault's own
+    .git/config (vault-spec 1.2): `user.name`, `user.email` and the URL of
+    the `origin` remote. Each is applied only when given and only when the
+    repository does not already hold that value, so a repeated `hunt init`
+    changes nothing. Global and system git config are never touched. Returns
+    a description of each setting it changed.
+    """
+    vault = Path(vault)
+    changed: list[str] = []
+    for key, value in (("user.name", user_name), ("user.email", user_email)):
+        if value is None:
+            continue
+        current = _git(vault, "config", "--local", "--get", key, check=False)
+        if current.returncode == 0 and current.stdout.rstrip("\n") == value:
+            continue
+        _git(vault, "config", "--local", key, value)
+        changed.append("%s=%s" % (key, value))
+    if remote is not None:
+        # The raw config value, not `remote get-url`, which reports the URL
+        # after any url.<base>.insteadOf rewriting and would never match.
+        current = _git(vault, "config", "--local", "--get", "remote.origin.url", check=False)
+        if current.returncode != 0:
+            _git(vault, "remote", "add", "origin", remote)
+            changed.append("remote.origin.url=" + remote)
+        elif current.stdout.rstrip("\n") != remote:
+            _git(vault, "remote", "set-url", "origin", remote)
+            changed.append("remote.origin.url=" + remote)
+    return changed
+
+
+def init(
+    vault: Path,
+    branch: str,
+    prepare=None,
+    *,
+    remote: str | None = None,
+    user_name: str | None = None,
+    user_email: str | None = None,
+    configured: list[str] | None = None,
+) -> list[Path]:
     """Create the repository, `main`, and the working branch (vault-spec 5).
 
     `prepare(vault) -> list[Path]` runs only when this call creates the root
@@ -95,6 +141,12 @@ def init(vault: Path, branch: str, prepare=None) -> list[Path]:
     vault-spec 8 rests - in place before any card is committed on any branch,
     and inherits it into every branch forked from `main`. Returns the paths it
     committed, empty when `main` already existed.
+
+    `remote`, `user_name` and `user_email` are the optional hunt.conf git
+    settings; they go into the vault's .git/config through `configure` as
+    soon as the repository exists and before the root commit, so that a
+    configured identity is the one that signs it. The settings it changed are
+    appended to `configured` when a list is given.
     """
     vault = Path(vault)
     # vault-spec 3: a directory, not a symlink to one. is_dir() follows the
@@ -116,6 +168,10 @@ def init(vault: Path, branch: str, prepare=None) -> list[Path]:
             )
         vault.mkdir(parents=True, exist_ok=True)
         _git(vault, "init", "--initial-branch=" + MAIN_BRANCH)
+
+    changed = configure(vault, remote=remote, user_name=user_name, user_email=user_email)
+    if configured is not None:
+        configured.extend(changed)
 
     written: list[Path] = []
     if not _has_branch(vault, MAIN_BRANCH):

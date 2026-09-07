@@ -73,16 +73,34 @@ KEY         := [A-Z][A-Z0-9_]*
 ### 1.2 Schema
 
 The schema is **closed**: a key that is not listed below is a validation
-failure, not a value silently ignored. Both keys are REQUIRED to be *present*;
-either one missing is an error.
+failure, not a value silently ignored. The two required keys MUST be *present*;
+either one missing is an error. The optional keys MAY be absent, and an absent
+optional key is the same as an empty one.
 
 | Key | Value |
 |---|---|
-| `VAULT_PATH` | absolute filesystem path to the vault root |
-| `VAULT_BRANCH` | name of the Git branch the tool writes on |
+| `VAULT_PATH` | absolute filesystem path to the vault root (required) |
+| `VAULT_BRANCH` | name of the Git branch the tool writes on (required) |
+| `VAULT_REMOTE` | URL of the vault repository's `origin` remote (optional) |
+| `GIT_USER_NAME` | `user.name` for commits made in the vault (optional) |
+| `GIT_USER_EMAIL` | `user.email` for commits made in the vault (optional) |
+
+The optional keys are Git settings for the vault repository alone. When
+configured, initialization (Section 5) writes each into the vault's own
+`.git/config` - the `origin` remote's URL, and the local `user.name` and
+`user.email` - and MUST NOT touch the user's global or system Git configuration.
+They exist so that a vault can carry an identity and a remote of its own,
+distinct from whatever the rest of the machine uses. A configured
+`VAULT_REMOTE` MUST NOT begin with `-` and MUST be printable ASCII with no
+whitespace. A configured `GIT_USER_NAME` MUST be printable ASCII, MUST NOT be
+only spaces, and MUST NOT contain `<` or `>`; a configured `GIT_USER_EMAIL`
+MUST be printable ASCII with no whitespace and no `<` or `>`, since Git uses
+those to delimit the identity. The optional keys never count toward
+"configured": a `hunt.conf` whose required values are empty is unconfigured
+whatever the optional ones hold.
 
 **An empty value (`KEY=""`) means the key is unconfigured.** It is not an error
-and MUST NOT be reported as one. A `hunt.conf` whose values are both empty is
+and MUST NOT be reported as one. A `hunt.conf` whose values are all empty is
 the well-formed initial state of the file, which is what lets the file be
 distributed, and version-controlled, by a tool checkout that has no vault.
 
@@ -340,8 +358,15 @@ MAY be given the values precondition 1 requires rather than reading them: a
 value supplied on the command line satisfies that precondition for this run and
 is recorded in the resolved `hunt.conf`. Replacing a value that is already
 configured MUST require the user's confirmation; supplying only one of the two
-MUST be refused before anything is written, since the command would otherwise
-succeed and leave the vault unreachable.
+required keys MUST be refused before anything is written, since the command
+would otherwise succeed and leave the vault unreachable.
+
+Initialization applies the optional Git settings of Section 1.2 to the vault
+repository once it exists and before its first commit, so that a configured
+identity is the one that signs the root commit and a machine with no global
+Git identity can still initialize a vault. It writes only what differs: a
+setting the repository already holds is left as it is, and a setting that is
+not configured is neither written nor removed.
 
 Its postcondition is that preconditions 3, 4, and 6 hold and that the **vault
 scaffold** exists and is committed. The scaffold is exactly these files:

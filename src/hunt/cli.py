@@ -16,6 +16,7 @@ from .config import (
     load_config,
     load_configured,
     require_configured,
+    user_config,
     write_config,
 )
 from .validate import validate_parent_dir, validate_transition, validate_vault
@@ -155,7 +156,7 @@ def _locate_config(args):
                 "%s; or run: hunt init --vault-path <PATH> --vault-branch <NAME>"
                 % exc
             ) from exc
-        return Path.cwd() / CONF_NAME, None
+        return user_config(), None
     # The file may be the per-user one, or any ancestor's: find_config ascends
     # without stopping at a repository boundary or $HOME (vault-spec 2), so say
     # which file is about to be written.

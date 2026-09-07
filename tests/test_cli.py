@@ -554,16 +554,19 @@ def test_init_populates_an_empty_conf_and_scaffolds_the_root_commit(tmp_path):
         assert_file_conventions(vault_path / name)
 
 
-def test_init_creates_a_conf_where_none_was_found(tmp_path):
+def test_init_creates_a_user_conf_where_none_was_found(tmp_path):
+    home = tmp_path / "home"
+    conf = home / ".config" / "hunt" / "hunt.conf"
     result = init_in(
         tmp_path,
         "--vault-path",
         str(tmp_path / "vault"),
         "--vault-branch",
         "drafting",
+        HOME=str(home),
     )
     assert result.returncode == 0, result.stderr
-    assert 'VAULT_BRANCH="drafting"' in read_conf(tmp_path)
+    assert 'VAULT_BRANCH="drafting"' in conf.read_text()
 
 
 def test_init_refuses_when_hunt_conf_is_pointed_at_a_missing_file(tmp_path):

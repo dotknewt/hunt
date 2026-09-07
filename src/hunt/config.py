@@ -24,7 +24,6 @@ _BRANCH_RE = re.compile(r"(?!/)(?!.*[/.]{2})(?!.*[/.]$)[A-Za-z0-9._/-]+")
 class ConfigError(HuntError):
     pass
 
-
 class ConfigUnset(ConfigError):
     """vault-spec 1.2: a key is present but empty, which means unconfigured.
 
@@ -210,6 +209,7 @@ def write_config(path: Path, values: dict[str, str]) -> Path:
     else:
         original = ""
 
+    conf.parent.mkdir(parents=True, exist_ok=True) # ensure the directory exists before writing
     lines = original.splitlines()
     remaining = dict(values)
     for index, raw in enumerate(lines):

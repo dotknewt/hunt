@@ -1,6 +1,6 @@
 # Recurring Task-Card Schema (Obsidian, plain-text Markdown)
 
-**Version:** 8
+**Version:** 9
 **Status:** normative schema and validation contract.
 **Scope:** card format, cross-file invariants, and the rules a validator MUST
 enforce, over a tree of card files rooted at a *card root*. Where that root
@@ -10,7 +10,12 @@ no path outside the card tree and no version-control system. Tool
 implementation, CI wiring, and a stats layer are not specified here; their
 *absence* does not weaken any rule below. Every rule below is enforceable today
 by manual inspection and MUST be enforced by code once a validator exists.
-**Changelog:** v8 freezes the whole body of an accepted run card (Section 6.1
+**Changelog:** v9 relaxes the parent body (Section 5.2): the three required H2
+sections must exist, in order, but an author MAY add any other section or
+prose before `## Why`, inside `## Why` (sub-sections included), or after
+`## Run history`; all of it is user region and survives a re-render verbatim.
+Only the managed region, `## Latest findings` through `## Run history`, stays
+closed. v8 freezes the whole body of an accepted run card (Section 6.1
 and invariant 9 of Section 7): every section after `## Outcome` is as immutable
 as the frontmatter, and the only permitted body change remains an appended
 addition under `## Outcome`. v7 widens the optional run-card field `scope` (Sections 4 and
@@ -351,9 +356,13 @@ Requirements:
 
 - Exactly one H1, of the exact form `# <PARENT-ID> - <task name>`, where the
   separator is a space, a plain hyphen-minus, and a space.
-- Exactly the three H2 sections `## Why`, `## Latest findings`,
-  `## Run history`, in this order. Additional H2+ sections MAY follow
-  `## Run history`; none may be inserted between the three required ones.
+- The three H2 sections `## Why`, `## Latest findings`, `## Run history`,
+  each present exactly once at level 2 and in this relative order. A missing
+  one is the only structural finding the body raises. Any other section (of
+  any level) or prose MAY appear between the H1 and `## Why`, under `## Why`
+  (including further H2+ sections before `## Latest findings`), or after
+  `## Run history`. Nothing may sit between `## Latest findings` and
+  `## Run history`: that is the managed region and would be re-rendered away.
 - `## Latest findings` contains exactly one line,
   `![[<latest_run>#Outcome]]`, where `<latest_run>` is the frontmatter
   `latest_run` value - or no lines at all when the parent has no runs.
@@ -376,8 +385,9 @@ is:
   two sections.
 
 The *user region* is everything else: the `id`, `category`, `tags`,
-`status`, and `cadence` frontmatter lines; the `<task name>` in the H1; the whole body of
-`## Why`; and every H2+ section after `## Run history`, with its body.
+`status`, and `cadence` frontmatter lines; the `<task name>` in the H1;
+everything between the H1 and `## Latest findings` (which contains `## Why`);
+and every H2+ section after `## Run history`, with its body.
 
 The managed region is empty of content, though not of its two headings, when
 the parent has no runs. Tooling MUST re-render the managed region in full from

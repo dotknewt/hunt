@@ -136,12 +136,71 @@ def test_why_body_survives_a_re_render():
     assert parent.why in cards.render_parent(parent, runs)
 
 
-def test_a_heading_between_the_required_sections_is_rejected():
+@pytest.mark.parametrize(
+    "source",
+    [
+        # A sub-section and prose inside Why.
+        PARENT_NO_RUNS.replace(
+            "## Why\n",
+            "## Why\nBecause.\n\n### Details\nMore on why.\n\n- a list\n",
+            1,
+        ),
+        # A whole extra H2 between Why and Latest findings.
+        PARENT_NO_RUNS.replace(
+            "## Latest findings", "## Hypotheses\n- one\n- two\n\n## Latest findings", 1
+        ),
+        # Prose and a section between the H1 and Why.
+        PARENT_NO_RUNS.replace(
+            "## Why", "A summary line.\n\n## Context\nSome context.\n\n## Why", 1
+        ),
+        # Everything at once, before, between and after.
+        PARENT_NO_RUNS.replace("## Why", "## Before\nb.\n\n## Why\nw.\n\n### Sub\ns.", 1)
+        + "\n## After\na.\n\n#### Deep\nd.\n",
+    ],
+)
+def test_additional_sections_and_content_round_trip(source):
+    """The three required H2 sections are all that is demanded of a parent
+    body; any other section or prose outside the managed region is the
+    author's and survives a re-render byte for byte."""
+    assert cards.render_parent(cards.parse_parent(source), []) == source
+
+
+def test_a_sub_section_under_why_is_part_of_why():
     source = PARENT_NO_RUNS.replace(
-        "## Latest findings", "### Sneaky\n\n## Latest findings", 1
+        "## Why\n", "## Why\nBecause.\n\n### Details\nMore.\n", 1
     )
-    with pytest.raises(CardError):
+    parent = cards.parse_parent(source)
+    assert parent.why == "Because.\n\n### Details\nMore."
+    assert parent.extra == ""
+
+
+@pytest.mark.parametrize("title", ["Why", "Latest findings", "Run history"])
+def test_a_missing_required_section_is_still_rejected(title):
+    source = PARENT_NO_RUNS.replace(f"## {title}", f"## {title} (renamed)", 1)
+    with pytest.raises(CardError) as info:
         cards.parse_parent(source)
+    assert info.value.code == "BODY-MISSING-SECTION"
+    assert title in str(info.value)
+
+
+def test_required_sections_out_of_order_are_rejected():
+    source = PARENT_NO_RUNS.replace(
+        "## Why\n\n## Latest findings", "## Latest findings\n\n## Why", 1
+    )
+    with pytest.raises(CardError) as info:
+        cards.parse_parent(source)
+    assert info.value.code == "BODY-SECTION-ORDER"
+
+
+def test_a_heading_inside_the_managed_region_is_rejected():
+    """Latest findings through Run history is re-rendered from the run files,
+    so anything an author puts there would be lost rather than kept."""
+    source = PARENT_NO_RUNS.replace(
+        "## Run history", "### Sneaky\n\n## Run history", 1
+    )
+    with pytest.raises(CardError) as info:
+        cards.parse_parent(source)
+    assert info.value.code == "BODY-SECTION-ORDER"
 
 
 # --- run status -------------------------------------------------------------

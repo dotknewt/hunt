@@ -178,9 +178,11 @@ Classes
 - `CardError(HuntError)`: malformed card or allocation refusal; carries a short
   `code` (e.g. `FM-BAD-ID`) that `validate.py` maps to a finding code.
 - `ParentId(category, number)`, `RunId(parent, number)`: NamedTuples.
-- `Parent(frontmatter, name, why, extra)`: validating properties `id`,
-  `category`, `tags`, `status`, `latest_run`, `latest_run_date`. `extra` is
-  the body after the three known sections, preserved verbatim.
+- `Parent(frontmatter, name, why, extra, preamble)`: validating properties
+  `id`, `category`, `tags`, `status`, `latest_run`, `latest_run_date`. The
+  user region is held verbatim: `preamble` (between the H1 and `## Why`),
+  `why` (under `## Why` up to `## Latest findings`, sub-sections included)
+  and `extra` (every section after `## Run history`).
 - `Run(frontmatter, outcome, extra)`: properties `id`, `parent`, `run_date`,
   `previous_run`, `status`, `scope`.
 
@@ -220,9 +222,11 @@ Functions
 - `frontmatter_key_order(text)`: textual key list, duplicates included.
 - `_load_frontmatter(block)`: YAML -> dict with type checks.
 - `parse_parent(text)`, `parse_run(text)`: full file -> `Parent`/`Run`;
-  enforce H1 `# ID - name`, `Part of:`/`Previous:` lines, section presence
-  and order.
-- `_first_content`, `_split_sections`, `_section_body`, `_sections_from`:
+  enforce H1 `# ID - name`, `Part of:`/`Previous:` lines, and that the
+  required sections exist in order; a parent may carry any other section or
+  prose outside its managed region.
+- `_first_content`, `_split_sections`, `_section_body`, `_region_body`,
+  `_sections_from`:
   body-slicing helpers keyed on `_HEADING_RE`.
 - `render_parent(parent, runs)`, `render_run(run)`: canonical text. Validation
   compares files byte for byte against these, so they define the only accepted

@@ -226,6 +226,23 @@ def test_missing_section(good):
     assert set(codes(good.path)) & {"render.missing-section", "render.parse-error"}
 
 
+def test_additional_sections_validate_clean(good):
+    """Only the three required sections are demanded; an author's own
+    sections and prose outside the managed region are not findings."""
+    edit(good, BSL, "# BSL-001 - Monthly DNS query volume baseline\n",
+         "# BSL-001 - Monthly DNS query volume baseline\n\n## Summary\nOne line.\n")
+    edit(good, BSL, "## Latest findings", "### Approach\nHow.\n\n## Sources\n- logs\n\n## Latest findings")
+    path = edit(good, BSL, "- [[BSL-001.001]] - 2026-08-01\n",
+                "- [[BSL-001.001]] - 2026-08-01\n\n## Notes\nKept.\n")
+    assert codes(good.path) == []
+    assert "## Sources" in path.read_text(encoding="utf-8")
+
+
+def test_a_heading_inside_the_managed_region_is_a_finding(good):
+    edit(good, BSL, "## Run history", "### Sneaky\n\n## Run history")
+    assert "render.section-order" in codes(good.path)
+
+
 def test_bad_h1(good):
     edit(good, BSL, "# BSL-001 - Monthly", "# BSL-001 Monthly")
     assert set(codes(good.path)) & {"render.bad-h1", "render.parse-error"}

@@ -92,13 +92,16 @@ class RunId(NamedTuple):
 class Parent:
     """A parent (index) card. Frontmatter is kept raw; every property validates
     on access and raises CardError, so a Parent can hold bad data until asked.
-    `extra` is any body text after the three mandated sections, preserved
-    verbatim by render_parent."""
+    The user region of the body is held verbatim for render_parent: `preamble`
+    is anything between the H1 and "## Why", `why` everything from under
+    "## Why" up to "## Latest findings" (sub-sections included), and `extra`
+    every section after "## Run history"."""
 
     frontmatter: dict
     name: str = ""
     why: str = ""
     extra: str = ""
+    preamble: str = ""
 
     @property
     def id(self):
@@ -623,9 +626,11 @@ def load_frontmatter(block):
 
 
 def parse_parent(text):
-    """Parse a parent card strictly per card-spec: frontmatter, exactly one H1
-    of the form "# ID - name", then "## Why", "## Latest findings",
-    "## Run history" in that order. Anything after those is kept as extra."""
+    """Parse a parent card per card-spec: frontmatter, exactly one H1 of the
+    form "# ID - name", and the H2 sections "## Why", "## Latest findings",
+    "## Run history" in that order. Any other section or prose is allowed
+    anywhere outside the managed region (Latest findings through Run history)
+    and is kept verbatim, so a re-render reproduces it."""
     block, body = split_frontmatter(text)
     frontmatter = load_frontmatter(block)
     card = Parent(frontmatter)
@@ -645,22 +650,32 @@ def parse_parent(text):
         raise CardError("a parent card has exactly one H1", "BODY-BAD-H1")
     rest = lines[start + 1:]
     sections = _split_sections(rest)
-    titles = [title for title, _, _ in sections]
-    heads = [(title, level) for title, _, level in sections[:len(PARENT_SECTIONS)]]
-    if heads != [(title, 2) for title in PARENT_SECTIONS]:
-        missing = [title for title in PARENT_SECTIONS if title not in titles]
-        if missing:
-            raise CardError(
-                f"parent card is missing section(s): {', '.join(missing)}",
-                "BODY-MISSING-SECTION",
-            )
+    positions = {}
+    for position, (title, _, level) in enumerate(sections):
+        if level == 2 and title in PARENT_SECTIONS and title not in positions:
+            positions[title] = position
+    missing = [title for title in PARENT_SECTIONS if title not in positions]
+    if missing:
         raise CardError(
-            f"sections must be {', '.join(PARENT_SECTIONS)} in that order",
+            f"parent card is missing section(s): {', '.join(missing)}",
+            "BODY-MISSING-SECTION",
+        )
+    why_at, findings_at, history_at = (positions[title] for title in PARENT_SECTIONS)
+    if not why_at < findings_at < history_at:
+        raise CardError(
+            f"sections {', '.join(PARENT_SECTIONS)} must appear in that order",
             "BODY-SECTION-ORDER",
         )
-    why = _section_body(rest, sections, 0)
-    extra = _sections_from(rest, sections, len(PARENT_SECTIONS))
-    return Parent(frontmatter, name, why, extra)
+    if history_at != findings_at + 1:
+        raise CardError(
+            f"nothing may sit between ## {LATEST_FINDINGS} and ## {RUN_HISTORY}: "
+            "that region is managed and re-rendered from the run files",
+            "BODY-SECTION-ORDER",
+        )
+    preamble = "\n".join(rest[:sections[why_at][1]]).strip("\n")
+    why = _region_body(rest, sections, why_at, findings_at)
+    extra = _sections_from(rest, sections, history_at + 1)
+    return Parent(frontmatter, name, why, extra, preamble)
 
 
 def parse_run(text):
@@ -733,6 +748,14 @@ def _section_body(lines, sections, position):
     return "\n".join(lines[start:end]).rstrip("\n")
 
 
+def _region_body(lines, sections, position, until):
+    """Text between the heading at `position` and the heading at `until`,
+    headings of any level in between included."""
+    start = sections[position][1] + 1
+    end = sections[until][1]
+    return "\n".join(lines[start:end]).rstrip("\n")
+
+
 def _sections_from(lines, sections, position):
     """Verbatim text from the heading at `position` to the end (the `extra`)."""
     if position >= len(sections):
@@ -760,6 +783,8 @@ def render_parent(parent, runs):
         keys.append(f'latest_run_date: "{runs[-1].run_date}"')
     text = _frontmatter(keys)
     text += f"\n# {parent.id} - {parent.name}\n"
+    if parent.preamble:
+        text += "\n" + parent.preamble + "\n"
     text += "\n" + _section(WHY, parent.why)
     if runs:
         history = "\n".join(f"- [[{run.id}]] - {run.run_date}" for run in reversed(runs))

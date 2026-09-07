@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 from datetime import date
 from pathlib import Path
@@ -12,11 +11,10 @@ from .config import (
     CONF_NAME,
     ConfigError,
     ConfigUnset,
-    find_config,
     load_config,
     load_configured,
+    locate_write_config,
     require_configured,
-    user_config,
     write_config,
 )
 from .validate import validate_parent_dir, validate_transition, validate_vault
@@ -141,25 +139,31 @@ def _confirm(question, assume_yes):
     return answer.strip().lower() in ("y", "yes")
 
 
+def _explicit_conf(args):
+    """The --config path, if the command was given one, else None."""
+    config = getattr(args, "config", None)
+    return Path(config).expanduser() if config else None
+
+
 def _locate_config(args):
-    """The hunt.conf `hunt init` will write, and its current contents if any."""
-    try:
-        conf = find_config()
-    except ConfigError as exc:
-        if os.environ.get("HUNT_CONF"):
-            # An explicit pointer at a missing file is a mistake, not a request
-            # to create one somewhere else.
-            raise
+    """The hunt.conf `hunt init` will write, and its current contents if any.
+
+    Unlike the read path, this never ascends from the working directory: a
+    vault checkout's own tracked hunt.conf is a default for *reading*, not a
+    target `init` should ever write to by accident. Only --config or HUNT_CONF
+    names one explicitly; absent either, this always defaults to the per-user
+    file, creating it if needed. --config may name a file that does not exist
+    yet; HUNT_CONF may not (locate_write_config raises on that case itself).
+    """
+    conf = locate_write_config(explicit=_explicit_conf(args))
+    if not conf.is_file():
         if args.vault_path is None and args.vault_branch is None:
             # Nothing to write and nowhere to write it: say what would fix both.
             raise ConfigError(
-                "%s; or run: hunt init --vault-path <PATH> --vault-branch <NAME>"
-                % exc
-            ) from exc
-        return user_config(), None
-    # The file may be the per-user one, or any ancestor's: find_config ascends
-    # without stopping at a repository boundary or $HOME (vault-spec 2), so say
-    # which file is about to be written.
+                "no %s found at %s; run: hunt init --vault-path <PATH> "
+                "--vault-branch <NAME>" % (CONF_NAME, conf)
+            )
+        return conf, None
     print("configuration: %s" % conf)
     return conf, load_config(conf)
 
@@ -232,7 +236,7 @@ def cmd_init(args, today):
 
 
 def cmd_new(args, today):
-    config = load_configured()
+    config = load_configured(explicit=_explicit_conf(args))
     _sweep(config.vault_path)
     vault.ensure_writable(config)
     number = cards.next_parent_number(config.vault_path, args.category)
@@ -252,7 +256,7 @@ def cmd_new(args, today):
 
 
 def cmd_run(args, today):
-    config = load_configured()
+    config = load_configured(explicit=_explicit_conf(args))
     _sweep(config.vault_path)
     vault.ensure_writable(config)
     parent_path, parent = cards.load_parent(config.vault_path, args.id)
@@ -284,7 +288,7 @@ def cmd_run(args, today):
 
 
 def cmd_validate(args, today):
-    config = load_configured()
+    config = load_configured(explicit=_explicit_conf(args))
     if not config.vault_path.is_dir():
         raise VaultError("vault does not exist: %s" % config.vault_path)
     if not vault.is_repo(config.vault_path):
@@ -378,6 +382,11 @@ def build_parser():
         action="store_true",
         help="replace a configured value without asking (required when not a terminal)",
     )
+    init.add_argument(
+        "--config",
+        metavar="<PATH>",
+        help="%s to read and write; defaults to ~/.config/hunt/%s" % (CONF_NAME, CONF_NAME),
+    )
     init.set_defaults(func=cmd_init)
 
     new = subparsers.add_parser("new", help="create a parent card")
@@ -401,6 +410,9 @@ def build_parser():
         metavar="<days>",
         help="recurrence interval in days; omitted if unset",
     )
+    new.add_argument(
+        "--config", metavar="<PATH>", help="%s to read; overrides the usual lookup" % CONF_NAME
+    )
     new.set_defaults(func=cmd_new)
 
     run = subparsers.add_parser("run", help="create the next run card for a parent")
@@ -419,6 +431,9 @@ def build_parser():
         metavar="<scope>[,<scope>...]",
         help="comma-separated free-text scope, e.g. windows,servers; omitted if unset",
     )
+    run.add_argument(
+        "--config", metavar="<PATH>", help="%s to read; overrides the usual lookup" % CONF_NAME
+    )
     run.set_defaults(func=cmd_run)
 
     validate = subparsers.add_parser("validate", help="validate the vault")
@@ -434,6 +449,9 @@ def build_parser():
         metavar="<rev>",
         help="also check the transition from a git revision, e.g. origin/main "
         "(card-spec 8.2)",
+    )
+    validate.add_argument(
+        "--config", metavar="<PATH>", help="%s to read; overrides the usual lookup" % CONF_NAME
     )
     validate.set_defaults(func=cmd_validate)
 

@@ -27,11 +27,11 @@ uv run pytest
 
 ## Configure
 
-`hunt` looks for `hunt.conf` in three places and takes the first that has one:
-`$HUNT_CONF`, then `~/.config/hunt/hunt.conf`, then the current directory or the
-nearest ancestor that has one. Configuring yourself once at
-`~/.config/hunt/hunt.conf` covers every checkout, and keeps your values out of a
-repository that tracks the file:
+`hunt` looks for `hunt.conf` in four places and takes the first that has one:
+`--config <PATH>`, then `$HUNT_CONF`, then `~/.config/hunt/hunt.conf`, then the
+current directory or the nearest ancestor that has one. Configuring yourself
+once at `~/.config/hunt/hunt.conf` covers every checkout, and keeps your
+values out of a repository that tracks the file:
 
 ```
 VAULT_PATH="/absolute/path/to/vault"
@@ -66,6 +66,13 @@ writes the vault scaffold: `.gitattributes`, `.gitignore`, a GitHub Actions
 workflow at `.github/workflows/hunt.yml` and three minimal `.obsidian` configs.
 It never overwrites a file that already exists, so running it again on a
 configured vault verifies and succeeds without committing.
+
+`hunt init`'s write target never comes from ascent: absent `--config` and
+`$HUNT_CONF`, it always writes to `~/.config/hunt/hunt.conf`, creating it if
+needed, even if some ancestor directory happens to carry its own `hunt.conf`
+(for example a vault checkout's own tracked default). `--config` names the
+write target directly and may point at a file that does not exist yet;
+`$HUNT_CONF` keeps its stricter rule and must already exist.
 
 `-c` accepts any spelling of a category, case-insensitively:
 `baseline`/`BSL`/`b`, `hunt`/`HNT`/`h`, `math`/`MTH`/`m`.

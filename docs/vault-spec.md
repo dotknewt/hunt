@@ -132,20 +132,36 @@ VAULT_BRANCH="knut-hagane-lunden"
 The tool MUST locate `hunt.conf` by the following order, and MUST stop at the
 first step that yields a candidate:
 
+0. **`--config`.** If the command was given an explicit `--config <PATH>`
+   argument, that path is the configuration file, and no other step runs. A
+   relative value is resolved against `$PWD`. For a command that only reads
+   configuration, the named file MUST exist, be a regular file, and be
+   readable, or that is an error. For `hunt init`, which may write a
+   configuration into existence, the named file MAY be absent; `init`
+   creates it there.
 1. **`HUNT_CONF`.** If the environment variable `HUNT_CONF` is set and
    non-empty, its value is the path to the configuration file. A relative
    value is resolved against `$PWD`. This step does not walk up. If the named
    file does not exist, is not a regular file, or is not readable, that is an
-   error; the tool MUST NOT fall through to step 2.
+   error; the tool MUST NOT fall through to step 2. Unlike `--config`, this
+   step never treats a missing file as a create request, since an unset or
+   stale `HUNT_CONF` is easy to leave behind by accident.
 2. **Per-user `hunt.conf`.** Otherwise, if `~/.config/hunt/hunt.conf` is a
    readable regular file, it provides the configuration. `~` is the invoking
    user's home directory as the platform reports it. Anything else at that
    path -- a directory, a dangling symlink, an unreadable file -- is not a
-   candidate, and resolution continues at step 3.
+   candidate, and resolution continues at step 3. For `hunt init` with
+   neither `--config` nor `HUNT_CONF` set, this is the write target
+   regardless of whether it exists yet -- `init` creates it there.
 3. **Nearest `hunt.conf`.** Otherwise, starting at `$PWD` and ascending one
    directory at a time to the filesystem root, the first directory containing
    a readable regular file named `hunt.conf` provides it. The ascent is not
-   stopped by a repository boundary, a mount point, or a home directory.
+   stopped by a repository boundary, a mount point, or a home directory. This
+   step is for reading only: `hunt init` MUST NOT perform it, so that an
+   unrelated `hunt.conf` above the working directory -- such as a vault
+   checkout's own tracked default, meant only to be read -- can never become
+   an `init` write target by accident. Absent `--config` and `HUNT_CONF`,
+   `init` always writes to the per-user path (step 2), creating it if needed.
 4. **Error.** Otherwise the tool MUST report that no configuration was found,
    and MUST NOT write anything. The message MUST name both the per-user path
    and the directory the ascent started from.

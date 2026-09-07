@@ -79,9 +79,14 @@ Functions
 - `_warn(message)`: `hunt: warning:` line on stderr; passed to `scaffold`.
 - `_confirm(question, assume_yes)`: y/N prompt; refuses when stdin is not a tty
   (nobody can answer) unless `--yes`.
-- `_locate_config(args)`: which hunt.conf `init` will write. `$HUNT_CONF`
-  pointing at a missing file is an error; otherwise a missing file is created in
-  the cwd only if flags were given.
+- `_explicit_conf(args)`: the `--config` path, if the command was given one,
+  else `None`.
+- `_locate_config(args)`: which hunt.conf `init` will write, via
+  `locate_write_config`. `--config`, then `$HUNT_CONF` (pointing at a missing
+  file is an error), else the per-user file -- never ascent, so an unrelated
+  ancestor `hunt.conf` (e.g. a vault checkout's own tracked default) is never
+  mistaken for the write target. A missing file is created only if flags were
+  given.
 - `_init_values(args, config, conf)`: keys to write; prompts before replacing a
   value that is already set and differs.
 - `_sweep(vault_path)`: deletes OS artifacts via `vault.sweep` and prints each.
@@ -116,11 +121,18 @@ Classes
 
 Functions
 - `user_config()`: `USER_CONF` expanded against the live `$HOME`.
-- `find_config(start=None)`: `$HUNT_CONF` -> per-user file -> walk up from
-  `start`/cwd. Does not stop at repo boundaries or `$HOME`.
-- `load_config(path=None)`: parse and validate; empty values become `None`.
+- `find_config(start=None, *, explicit=None)`: `explicit` (`--config`) ->
+  `$HUNT_CONF` -> per-user file -> walk up from `start`/cwd. Does not stop at
+  repo boundaries or `$HOME`. Used for reading; `explicit` and `$HUNT_CONF`
+  both require the named file to already exist.
+- `locate_write_config(explicit=None)`: which hunt.conf `init` should write.
+  `explicit` (`--config`, may name a file that does not exist yet) ->
+  `$HUNT_CONF` (must already exist) -> per-user file. Never ascends, unlike
+  `find_config`.
+- `load_config(path=None, *, explicit=None)`: parse and validate; empty
+  values become `None`.
 - `require_configured(config)`: raise `ConfigUnset` if anything is `None`.
-- `load_configured(path=None)`: `find` + `load` + `require`.
+- `load_configured(path=None, *, explicit=None)`: `find` + `load` + `require`.
 - `_vault_path(conf, raw)`: must be absolute after `~/` expansion; rejects
   `~user`, `.` and `..` components.
 - `_branch(conf, branch)`: rejects `main`, leading `-` (would parse as a git

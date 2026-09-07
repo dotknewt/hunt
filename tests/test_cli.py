@@ -554,6 +554,87 @@ def test_init_populates_an_empty_conf_and_scaffolds_the_root_commit(tmp_path):
         assert_file_conventions(vault_path / name)
 
 
+def test_init_writes_the_optional_git_settings_to_conf_and_the_vault(tmp_path):
+    conf = empty_conf(tmp_path)
+    vault_path = tmp_path / "vault"
+    result = init_in(
+        tmp_path,
+        "--vault-path",
+        str(vault_path),
+        "--vault-branch",
+        "drafting",
+        "--remote",
+        "git@github.com:example/vault.git",
+        "--git-user-name",
+        "Ada Lovelace",
+        "--git-user-email",
+        "ada@example.com",
+        conf=conf,
+    )
+    assert result.returncode == 0, result.stderr
+    text = conf.read_text()
+    assert 'VAULT_REMOTE="git@github.com:example/vault.git"' in text
+    assert 'GIT_USER_NAME="Ada Lovelace"' in text
+    assert 'GIT_USER_EMAIL="ada@example.com"' in text
+    assert "configured user.name=Ada Lovelace" in result.stdout
+    assert "configured remote.origin.url=git@github.com:example/vault.git" in result.stdout
+
+    def git_in(*args):
+        return subprocess.run(
+            ["git", "-C", str(vault_path), *args],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+
+    assert git_in("config", "--local", "user.name") == "Ada Lovelace"
+    assert git_in("config", "--local", "user.email") == "ada@example.com"
+    assert git_in("config", "--local", "remote.origin.url") == "git@github.com:example/vault.git"
+
+    # A second run finds nothing to change and says so by staying quiet.
+    again = init_in(tmp_path, conf=conf)
+    assert again.returncode == 0, again.stderr
+    assert "configured" not in again.stdout
+
+
+def test_init_uses_the_configured_identity_for_the_root_commit(tmp_path):
+    """Without an identity in the environment, GIT_USER_* is what lets the
+    root commit happen at all on a machine with no global git config."""
+    conf = tmp_path / "hunt.conf"
+    vault_path = tmp_path / "vault"
+    conf.write_text(
+        'VAULT_PATH="%s"\nVAULT_BRANCH="drafting"\n'
+        'GIT_USER_NAME="Ada Lovelace"\nGIT_USER_EMAIL="ada@example.com"\n' % vault_path
+    )
+    result = run_hunt("init", cwd=tmp_path, conf=conf, HOME=str(tmp_path / "home"))
+    assert result.returncode == 0, result.stderr
+    author = subprocess.run(
+        ["git", "-C", str(vault_path), "log", "-1", "--format=%an <%ae>", "main"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    assert author == "Ada Lovelace <ada@example.com>"
+
+
+def test_init_creates_a_new_conf_with_the_whole_schema(tmp_path):
+    conf = tmp_path / "fresh" / "hunt.conf"
+    result = init_in(
+        tmp_path,
+        "--vault-path",
+        str(tmp_path / "vault"),
+        "--vault-branch",
+        "drafting",
+        "--config",
+        str(conf),
+    )
+    assert result.returncode == 0, result.stderr
+    assert conf.read_text() == (
+        'VAULT_PATH="%s"\nVAULT_BRANCH="drafting"\n'
+        'VAULT_REMOTE=""\nGIT_USER_NAME=""\nGIT_USER_EMAIL=""\n' % (tmp_path / "vault")
+    )
+
+
 def test_init_creates_a_user_conf_where_none_was_found(tmp_path):
     home = tmp_path / "home"
     conf = home / ".config" / "hunt" / "hunt.conf"

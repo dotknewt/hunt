@@ -87,8 +87,10 @@ Functions
   ancestor `hunt.conf` (e.g. a vault checkout's own tracked default) is never
   mistaken for the write target. A missing file is created only if flags were
   given.
-- `_init_values(args, config, conf)`: keys to write; prompts before replacing a
-  value that is already set and differs.
+- `_init_values(args, config, conf)`: keys to write (`--vault-path`,
+  `--vault-branch`, `--remote`, `--git-user-name`, `--git-user-email`);
+  prompts before replacing a value that is already set and differs. A new
+  file gets every key of `CONF_KEYS`, empty where nothing was given.
 - `_sweep(vault_path)`: deletes OS artifacts via `vault.sweep` and prints each.
   Not called by `validate` (a read-only command must not delete).
 - `cmd_init`, `cmd_new`, `cmd_run`, `cmd_validate`, `cmd_completion`,
@@ -108,7 +110,9 @@ Depends on: `hunt.HuntError`, stdlib. Implements vault-spec 1-2.
 
 Constants
 - `CONF_NAME = "hunt.conf"`, `USER_CONF = ~/.config/hunt/hunt.conf`.
-- `_KEYS`: `VAULT_PATH`, `VAULT_BRANCH`, the whole schema.
+- `_REQUIRED`: `VAULT_PATH`, `VAULT_BRANCH`; `_OPTIONAL`: `VAULT_REMOTE`,
+  `GIT_USER_NAME`, `GIT_USER_EMAIL` (may be absent); `_KEYS` (exported as
+  `CONF_KEYS`) is both, in the order `write_config` appends them.
 - `_LINE_RE`: `KEY="value"` lines only; anything else is passed through (comments).
 - `MAIN_BRANCH = "main"`; `_BRANCH_RE`: git ref-name subset.
 
@@ -117,7 +121,9 @@ Classes
 - `ConfigUnset(ConfigError)`: keys present but empty. Distinct because it is the
   expected state of a fresh checkout and gets exit 2.
 - `Config` (frozen dataclass): `vault_path`, `vault_branch` (None when empty),
-  `path` (the file they came from). `unset` property lists empty keys.
+  `path` (the file they came from), and the optional `vault_remote`,
+  `git_user_name`, `git_user_email` (None when empty or absent). `unset`
+  property lists empty required keys; the optional ones never appear in it.
 
 Functions
 - `user_config()`: `USER_CONF` expanded against the live `$HOME`.
@@ -137,6 +143,11 @@ Functions
   `~user`, `.` and `..` components.
 - `_branch(conf, branch)`: rejects `main`, leading `-` (would parse as a git
   option), non-printable, and non-ref-name strings.
+- `_remote(conf, url)`: empty -> None; rejects a leading `-` and anything but
+  printable ASCII without whitespace.
+- `_git_ident(conf, key, value)`: empty -> None; rejects `<`/`>` and
+  non-printable ASCII; the email also rejects spaces, the name rejects being
+  only spaces.
 - `write_config(path, values)`: rewrites matching lines in place and appends
   missing keys in schema order, keeping comments. Atomic write (`.hunt-tmp`,
   fsync, `os.replace`) and the temp file is re-parsed before it replaces the
@@ -235,10 +246,19 @@ Functions
   a subdirectory of one.
 - `_enclosing_repo(vault)`: the repo a not-yet-initialised vault would be
   nested inside, if any.
-- `init(vault, branch, prepare=None)`: refuses a symlink or a path inside another
-  repo; `git init -b main`; calls `prepare(root)` (scaffold), stages, refuses CR
-  bytes, root commit (`--allow-empty`), then creates/checks out `branch`.
-  Returns the paths `prepare` created if they went into the root commit.
+- `configure(vault, *, remote, user_name, user_email)`: writes the optional
+  hunt.conf git settings into the vault's `.git/config` (`git config --local`
+  for the identity, `git remote add/set-url origin` for the URL), skipping
+  any that already match; compares the raw `remote.origin.url` rather than
+  `remote get-url`, which reports the `insteadOf`-rewritten URL. Returns the
+  settings it changed as `key=value` strings.
+- `init(vault, branch, prepare=None, *, remote, user_name, user_email,
+  configured)`: refuses a symlink or a path inside another repo; `git init -b
+  main`; `configure` (before the root commit, so a configured identity signs
+  it, appending its changes to the `configured` list); calls `prepare(root)`
+  (scaffold), stages, refuses CR bytes, root commit (`--allow-empty`), then
+  creates/checks out `branch`. Returns the paths `prepare` created if they
+  went into the root commit.
 - `current_branch`, `is_clean`, `contains_main(vault, branch)` (branch has
   main's tip as ancestor).
 - `ensure_writable(config)`: the pre-write gate for `new`/`run`: repo exists,

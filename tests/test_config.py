@@ -194,9 +194,9 @@ def test_no_conf_anywhere_is_an_error(tmp_path, monkeypatch):
 
 def test_unknown_key_is_an_error(tmp_path, monkeypatch):
     root = tmp_path.resolve()
-    conf_at(root, GOOD + 'VAULT_REMOTE="origin"\n')
+    conf_at(root, GOOD + 'VAULT_COLOR="blue"\n')
     monkeypatch.chdir(root)
-    with pytest.raises(HuntError, match="VAULT_REMOTE"):
+    with pytest.raises(HuntError, match="VAULT_COLOR"):
         load_config()
 
 
@@ -304,6 +304,66 @@ def test_the_repo_conf_parses(monkeypatch):
     repo_conf = Path(__file__).resolve().parent.parent / "hunt.conf"
     config = load_config(repo_conf)
     assert config.unset == ("VAULT_PATH", "VAULT_BRANCH")
+    assert (config.vault_remote, config.git_user_name, config.git_user_email) == (None, None, None)
+
+
+OPTIONAL = (
+    'VAULT_REMOTE="git@github.com:example/vault.git"\n'
+    'GIT_USER_NAME="Ada Lovelace"\n'
+    'GIT_USER_EMAIL="ada@example.com"\n'
+)
+
+
+def test_optional_git_keys_may_be_absent_or_empty(tmp_path):
+    absent = load_config(conf_at(tmp_path / "absent", GOOD))
+    empty = load_config(
+        conf_at(tmp_path / "empty", GOOD + 'VAULT_REMOTE=""\nGIT_USER_NAME=""\nGIT_USER_EMAIL=""\n')
+    )
+    for config in (absent, empty):
+        assert config.unset == ()
+        assert config.vault_remote is None
+        assert config.git_user_name is None
+        assert config.git_user_email is None
+
+
+def test_optional_git_keys_are_parsed(tmp_path):
+    config = load_config(conf_at(tmp_path, GOOD + OPTIONAL))
+    assert config.vault_remote == "git@github.com:example/vault.git"
+    assert config.git_user_name == "Ada Lovelace"
+    assert config.git_user_email == "ada@example.com"
+
+
+def test_optional_git_keys_alone_do_not_configure(tmp_path):
+    """The optional keys never make an unconfigured vault look configured."""
+    config = load_config(conf_at(tmp_path, 'VAULT_PATH=""\nVAULT_BRANCH=""\n' + OPTIONAL))
+    assert config.unset == ("VAULT_PATH", "VAULT_BRANCH")
+
+
+@pytest.mark.parametrize(
+    "line, key",
+    [
+        ('VAULT_REMOTE="-oProxyCommand=evil"\n', "VAULT_REMOTE"),
+        ('VAULT_REMOTE="https://example.com/a b"\n', "VAULT_REMOTE"),
+        ('VAULT_REMOTE="https://example.com/\x7f"\n', "VAULT_REMOTE"),
+        ('GIT_USER_NAME="Ada <Lovelace>"\n', "GIT_USER_NAME"),
+        ('GIT_USER_NAME="   "\n', "GIT_USER_NAME"),
+        ('GIT_USER_NAME="Ada\tLovelace"\n', "GIT_USER_NAME"),
+        ('GIT_USER_EMAIL="ada lovelace@example.com"\n', "GIT_USER_EMAIL"),
+        ('GIT_USER_EMAIL="<ada@example.com>"\n', "GIT_USER_EMAIL"),
+    ],
+)
+def test_optional_git_keys_refuse_unsafe_values(tmp_path, line, key):
+    with pytest.raises(HuntError, match=key):
+        load_config(conf_at(tmp_path, GOOD + line))
+
+
+def test_write_config_appends_optional_keys_after_the_required_ones(tmp_path):
+    conf = conf_at(tmp_path, GOOD)
+    write_config(conf, {"GIT_USER_EMAIL": "ada@example.com", "VAULT_REMOTE": "https://example.com/v.git"})
+    assert conf.read_text() == (
+        GOOD + 'VAULT_REMOTE="https://example.com/v.git"\nGIT_USER_EMAIL="ada@example.com"\n'
+    )
+    assert load_config(conf).git_user_name is None
 
 
 def test_require_configured_names_the_file_and_every_unset_key(tmp_path, monkeypatch):
@@ -380,8 +440,8 @@ def test_write_config_emits_lf_and_a_trailing_newline(tmp_path):
 
 def test_write_config_refuses_an_unknown_key(tmp_path):
     conf = conf_at(tmp_path, GOOD)
-    with pytest.raises(HuntError, match="VAULT_REMOTE"):
-        write_config(conf, {"VAULT_REMOTE": "origin"})
+    with pytest.raises(HuntError, match="VAULT_COLOR"):
+        write_config(conf, {"VAULT_COLOR": "blue"})
     assert conf.read_text() == GOOD
 
 

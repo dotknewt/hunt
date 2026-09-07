@@ -36,9 +36,17 @@ values out of a repository that tracks the file:
 ```
 VAULT_PATH="/absolute/path/to/vault"
 VAULT_BRANCH="drafting"
+VAULT_REMOTE="git@github.com:you/vault.git"
+GIT_USER_NAME="Your Name"
+GIT_USER_EMAIL="you@example.com"
 ```
 
-Both keys must be present. An **empty value means unconfigured**, which is a
+`VAULT_PATH` and `VAULT_BRANCH` must be present. The other three are optional
+and may be left out or empty: when set, `hunt init` writes them into the
+vault's own `.git/config` as the `origin` remote URL and the repository-local
+`user.name` and `user.email`, so the vault can commit under an identity, and
+push to a remote, that the rest of your machine does not share. Your global git
+config is never touched. An **empty value means unconfigured**, which is a
 state rather than an error: `hunt --help`, `hunt completion` and tab completion
 all keep working, and a command that needs the value refuses with a message
 naming the file and the missing keys. The `hunt.conf` tracked here carries empty
@@ -52,6 +60,7 @@ it after initialization.
 
 ```sh
 hunt init --vault-path ~/vaults/hunting --vault-branch drafting
+hunt init --remote git@github.com:you/vault.git --git-user-name "Your Name" --git-user-email you@example.com
 hunt new -c h                     # -> HNT-001, titled after its own id
 hunt new -c hunt --name "Monthly encoded PowerShell persistence hunt" --cadence 30
 hunt run --id HNT-001
@@ -61,7 +70,10 @@ hunt validate
 
 `hunt init` writes any `hunt.conf` value given on the command line (prompting
 before replacing one that is already set, or `--yes` to skip the prompt),
-creates the vault and its `main` and working branches if they do not exist, and
+creates the vault and its `main` and working branches if they do not exist,
+applies any configured `VAULT_REMOTE`, `GIT_USER_NAME` and `GIT_USER_EMAIL` to
+the vault's `.git/config` before the first commit (reporting each setting it
+changed, and changing nothing that already matches), and
 writes the vault scaffold: `.gitattributes`, `.gitignore`, a GitHub Actions
 workflow at `.github/workflows/hunt.yml` and three minimal `.obsidian` configs.
 It never overwrites a file that already exists, so running it again on a

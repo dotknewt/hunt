@@ -1,3 +1,6 @@
+import os
+from pathlib import Path
+
 import pytest
 
 from hunt import vault as vaultmod
@@ -118,6 +121,97 @@ def test_init_is_idempotent_and_keeps_history(tmp_path):
     vaultmod.init(root, "drafting")
     assert run_git(root, "rev-parse", "HEAD").strip() == before
     assert run_git(root, "log", "--format=%H") == log_before
+
+
+def test_init_writes_the_optional_git_settings_into_the_local_config(
+    tmp_path, monkeypatch
+):
+    # The fixture identity comes through the environment and would win over
+    # any config; without it the root commit must be signed by what hunt.conf
+    # configured, which is the point of applying the settings before it.
+    for key in (
+        "GIT_AUTHOR_NAME",
+        "GIT_AUTHOR_EMAIL",
+        "GIT_COMMITTER_NAME",
+        "GIT_COMMITTER_EMAIL",
+    ):
+        monkeypatch.delenv(key)
+    root = tmp_path / "fresh"
+    configured = []
+    vaultmod.init(
+        root,
+        "drafting",
+        remote="git@github.com:example/vault.git",
+        user_name="Ada Lovelace",
+        user_email="ada@example.com",
+        configured=configured,
+    )
+    assert configured == [
+        "user.name=Ada Lovelace",
+        "user.email=ada@example.com",
+        "remote.origin.url=git@github.com:example/vault.git",
+    ]
+    assert run_git(root, "config", "--local", "user.name").strip() == "Ada Lovelace"
+    assert run_git(root, "config", "--local", "user.email").strip() == "ada@example.com"
+    assert (
+        run_git(root, "config", "--local", "remote.origin.url").strip()
+        == "git@github.com:example/vault.git"
+    )
+    assert (
+        run_git(root, "log", "-1", "--format=%an <%ae>", "main").strip()
+        == "Ada Lovelace <ada@example.com>"
+    )
+    # The global config is a test-owned file (conftest), and it stays untouched.
+    global_config = Path(os.environ["GIT_CONFIG_GLOBAL"])
+    assert (
+        not global_config.exists() or "ada@example.com" not in global_config.read_text()
+    )
+
+
+def test_init_without_the_optional_settings_leaves_the_local_config_alone(tmp_path):
+    root = tmp_path / "fresh"
+    configured = []
+    vaultmod.init(root, "drafting", configured=configured)
+    assert configured == []
+    local = run_git(root, "config", "--local", "--list")
+    assert "user.name" not in local
+    assert "user.email" not in local
+    assert "remote.origin" not in local
+
+
+def test_init_reapplies_only_settings_that_changed(tmp_path):
+    root = tmp_path / "fresh"
+    vaultmod.init(
+        root, "drafting", remote="https://example.com/old.git", user_name="Ada"
+    )
+    configured = []
+    vaultmod.init(
+        root,
+        "drafting",
+        remote="https://example.com/new.git",
+        user_name="Ada",
+        user_email="ada@example.com",
+        configured=configured,
+    )
+    assert configured == [
+        "user.email=ada@example.com",
+        "remote.origin.url=https://example.com/new.git",
+    ]
+    assert (
+        run_git(root, "config", "--local", "remote.origin.url").strip()
+        == "https://example.com/new.git"
+    )
+    assert run_git(root, "remote").split() == ["origin"]
+    configured = []
+    vaultmod.init(
+        root,
+        "drafting",
+        remote="https://example.com/new.git",
+        user_name="Ada",
+        user_email="ada@example.com",
+        configured=configured,
+    )
+    assert configured == []
 
 
 def test_init_refuses_to_nest_inside_an_enclosing_repository(vault):

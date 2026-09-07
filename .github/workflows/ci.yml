@@ -63,7 +63,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: hunt.conf carries no values
         run: |
-          expected=$'VAULT_PATH=""\nVAULT_BRANCH=""'
+          expected=$'VAULT_PATH=""\nVAULT_BRANCH=""\nVAULT_REMOTE=""\nGIT_USER_NAME=""\nGIT_USER_EMAIL=""'
           actual="$(grep -v '^[[:space:]]*\(#.*\)\?$' hunt.conf)"
           if [ "$actual" != "$expected" ]; then
             echo "hunt.conf must have empty values on main; found:" >&2

@@ -11,7 +11,12 @@ CONF_NAME = "hunt.conf"
 USER_CONF = Path("~") / ".config" / "hunt" / CONF_NAME
 """vault-spec 2 step 2: the one well-known location, checked before the walk up."""
 
-_KEYS = ("VAULT_PATH", "VAULT_BRANCH")
+_REQUIRED = ("VAULT_PATH", "VAULT_BRANCH")
+# vault-spec 1.2: keys that may be absent as well as empty. Each one, when
+# configured, is written into the vault's own .git/config by `hunt init`.
+_OPTIONAL = ("VAULT_REMOTE", "GIT_USER_NAME", "GIT_USER_EMAIL")
+_KEYS = _REQUIRED + _OPTIONAL
+CONF_KEYS = _KEYS
 # vault-spec 1.1: KEY="value", the key in SCREAMING_SNAKE_CASE. Anything
 # else is a syntax error and not a key we happen not to know.
 _LINE_RE = re.compile(r'^([A-Z][A-Z0-9_]*)="([^"]*)"$')
@@ -51,10 +56,17 @@ class Config:
     vault_branch: str | None
     path: Path | None = None
     """The hunt.conf these values came from, so a refusal can name it."""
+    vault_remote: str | None = None
+    """URL of the vault's `origin` remote (vault-spec 1.2); None when unset."""
+    git_user_name: str | None = None
+    """user.name for the vault's .git/config (vault-spec 1.2); None when unset."""
+    git_user_email: str | None = None
+    """user.email for the vault's .git/config (vault-spec 1.2); None when unset."""
 
     @property
     def unset(self) -> tuple[str, ...]:
-        """The keys that are present in the file but empty (vault-spec 1.2)."""
+        """The required keys that are present in the file but empty (vault-spec
+        1.2). An optional key is never listed: being unset is its default."""
         pairs = (("VAULT_PATH", self.vault_path), ("VAULT_BRANCH", self.vault_branch))
         return tuple(key for key, value in pairs if value is None)
 
@@ -144,13 +156,13 @@ def load_config(path: Path | None = None, *, explicit: Path | None = None) -> Co
         key, value = match.group(1), match.group(2)
         if key not in _KEYS:
             raise ConfigError(
-                f"{conf}:{number}: unknown key {key}; only {' and '.join(_KEYS)} are allowed"
+                f"{conf}:{number}: unknown key {key}; only {', '.join(_KEYS)} are allowed"
             )
         if key in values:
             raise ConfigError(f"{conf}:{number}: duplicate key {key}")
         values[key] = value
 
-    missing = [key for key in _KEYS if key not in values]
+    missing = [key for key in _REQUIRED if key not in values]
     if missing:
         raise ConfigError(f"{conf}: missing required key(s): {', '.join(missing)}")
 
@@ -158,6 +170,9 @@ def load_config(path: Path | None = None, *, explicit: Path | None = None) -> Co
         vault_path=_vault_path(conf, values["VAULT_PATH"]),
         vault_branch=_branch(conf, values["VAULT_BRANCH"]),
         path=conf,
+        vault_remote=_remote(conf, values.get("VAULT_REMOTE", "")),
+        git_user_name=_git_ident(conf, "GIT_USER_NAME", values.get("GIT_USER_NAME", "")),
+        git_user_email=_git_ident(conf, "GIT_USER_EMAIL", values.get("GIT_USER_EMAIL", "")),
     )
 
 
@@ -214,6 +229,52 @@ def _branch(conf: Path, branch: str) -> str | None:
     if not _BRANCH_RE.fullmatch(branch):
         raise ConfigError(f"{conf}: VAULT_BRANCH is not a valid git branch name: {branch!r}")
     return branch
+
+
+def _printable(conf: Path, key: str, value: str) -> None:
+    """The file is ASCII already (vault-spec 1.1); this refuses the control
+    bytes and spaces that git would carry into a ref, a URL or an ident."""
+    if any(character < "!" or character > "~" for character in value):
+        raise ConfigError(
+            f"{conf}: {key} must be printable ASCII without spaces, got: {value!r}"
+        )
+
+
+def _remote(conf: Path, url: str) -> str | None:
+    """vault-spec 1.2: the URL `hunt init` records as the vault's `origin`.
+
+    What makes a URL fetchable is git's business; what is refused here is
+    only the spelling git could never be handed safely on its command line.
+    """
+    if not url:
+        return None
+    if url.startswith("-"):
+        raise ConfigError(
+            f"{conf}: VAULT_REMOTE must not begin with '-': git would read "
+            f"{url!r} as an option"
+        )
+    _printable(conf, "VAULT_REMOTE", url)
+    return url
+
+
+def _git_ident(conf: Path, key: str, value: str) -> str | None:
+    """vault-spec 1.2: a name or address for the vault's user.name/user.email.
+
+    Git builds `Name <email>` out of the two, so an angle bracket in either
+    would corrupt every commit's author line; it strips them silently, which is
+    worse than refusing. A name may hold spaces; an address may not.
+    """
+    if not value:
+        return None
+    if "<" in value or ">" in value:
+        raise ConfigError(f"{conf}: {key} must not contain '<' or '>', got: {value!r}")
+    if any(character < " " or character > "~" for character in value):
+        raise ConfigError(f"{conf}: {key} must be printable ASCII, got: {value!r}")
+    if key == "GIT_USER_EMAIL":
+        _printable(conf, key, value)
+    elif not value.strip():
+        raise ConfigError(f"{conf}: {key} must not be only spaces")
+    return value
 
 
 def write_config(path: Path, values: dict[str, str]) -> Path:

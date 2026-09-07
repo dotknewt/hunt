@@ -246,10 +246,11 @@ Functions
   a subdirectory of one.
 - `_enclosing_repo(vault)`: the repo a not-yet-initialised vault would be
   nested inside, if any.
-- `configure(vault, *, remote, user_name, user_email)`: writes the optional
-  hunt.conf git settings into the vault's `.git/config` (`git config --local`
-  for the identity, `git remote add/set-url origin` for the URL), skipping
-  any that already match; compares the raw `remote.origin.url` rather than
+- `configure(vault, *, remote, user_name, user_email)`: writes
+  `push.autoSetupRemote=true` unconditionally and the optional hunt.conf git
+  settings into the vault's `.git/config` (`git config --local` for the push
+  setting and the identity, `git remote add/set-url origin` for the URL),
+  skipping any that already match; compares the raw `remote.origin.url` rather than
   `remote get-url`, which reports the `insteadOf`-rewritten URL. Returns the
   settings it changed as `key=value` strings.
 - `init(vault, branch, prepare=None, *, remote, user_name, user_email,

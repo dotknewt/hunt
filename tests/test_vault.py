@@ -147,6 +147,7 @@ def test_init_writes_the_optional_git_settings_into_the_local_config(
         configured=configured,
     )
     assert configured == [
+        "push.autoSetupRemote=true",
         "user.name=Ada Lovelace",
         "user.email=ada@example.com",
         "remote.origin.url=git@github.com:example/vault.git",
@@ -172,11 +173,30 @@ def test_init_without_the_optional_settings_leaves_the_local_config_alone(tmp_pa
     root = tmp_path / "fresh"
     configured = []
     vaultmod.init(root, "drafting", configured=configured)
-    assert configured == []
+    # Only the unconditional push setting, which needs no hunt.conf value.
+    assert configured == ["push.autoSetupRemote=true"]
     local = run_git(root, "config", "--local", "--list")
     assert "user.name" not in local
     assert "user.email" not in local
     assert "remote.origin" not in local
+
+
+def test_init_always_sets_push_auto_setup_remote_in_the_local_config(tmp_path):
+    root = tmp_path / "fresh"
+    configured = []
+    vaultmod.init(root, "drafting", configured=configured)
+    assert run_git(root, "config", "--local", "push.autoSetupRemote").strip() == "true"
+    assert "push.autoSetupRemote=true" in configured
+    # The global config is a test-owned file (conftest), and it stays untouched.
+    global_config = Path(os.environ["GIT_CONFIG_GLOBAL"])
+    assert (
+        not global_config.exists()
+        or "autoSetupRemote" not in global_config.read_text()
+    )
+    # Already set: a repeated init has nothing to change and says nothing.
+    again = []
+    vaultmod.init(root, "drafting", configured=again)
+    assert again == []
 
 
 def test_init_reapplies_only_settings_that_changed(tmp_path):

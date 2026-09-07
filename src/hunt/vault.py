@@ -93,16 +93,22 @@ def configure(
     user_name: str | None = None,
     user_email: str | None = None,
 ) -> list[str]:
-    """Write the optional hunt.conf git settings into the vault's own
-    .git/config (vault-spec 1.2): `user.name`, `user.email` and the URL of
-    the `origin` remote. Each is applied only when given and only when the
-    repository does not already hold that value, so a repeated `hunt init`
-    changes nothing. Global and system git config are never touched. Returns
-    a description of each setting it changed.
+    """Write the vault's git settings into its own .git/config (vault-spec
+    1.2 and 5): `push.autoSetupRemote=true` always, so that the first push of
+    the working branch needs no `--set-upstream`, and the optional hunt.conf
+    settings `user.name`, `user.email` and the URL of the `origin` remote
+    when given. Each is applied only when the repository does not already
+    hold that value, so a repeated `hunt init` changes nothing. Global and
+    system git config are never touched. Returns a description of each
+    setting it changed.
     """
     vault = Path(vault)
     changed: list[str] = []
-    for key, value in (("user.name", user_name), ("user.email", user_email)):
+    for key, value in (
+        ("push.autoSetupRemote", "true"),
+        ("user.name", user_name),
+        ("user.email", user_email),
+    ):
         if value is None:
             continue
         current = _git(vault, "config", "--local", "--get", key, check=False)
@@ -143,10 +149,11 @@ def init(
     committed, empty when `main` already existed.
 
     `remote`, `user_name` and `user_email` are the optional hunt.conf git
-    settings; they go into the vault's .git/config through `configure` as
-    soon as the repository exists and before the root commit, so that a
-    configured identity is the one that signs it. The settings it changed are
-    appended to `configured` when a list is given.
+    settings; they go into the vault's .git/config through `configure`, along
+    with the unconditional `push.autoSetupRemote=true`, as soon as the
+    repository exists and before the root commit, so that a configured
+    identity is the one that signs it. The settings it changed are appended
+    to `configured` when a list is given.
     """
     vault = Path(vault)
     # vault-spec 3: a directory, not a symlink to one. is_dir() follows the

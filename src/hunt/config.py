@@ -64,14 +64,20 @@ def user_config() -> Path:
     return Path(USER_CONF).expanduser()
 
 
-def find_config(start: Path | None = None) -> Path:
+def find_config(start: Path | None = None, *, explicit: Path | None = None) -> Path:
     """Resolve the hunt.conf to use, stopping at the first step that yields one.
 
-    vault-spec 2: HUNT_CONF, then ~/.config/hunt/hunt.conf, then the nearest
-    hunt.conf at or above the working directory. The per-user file outranks the
-    checkout so that one machine-local answer can serve every clone; a checkout
-    that wants its own says so by carrying a hunt.conf only when it means it.
+    vault-spec 2: --config, then HUNT_CONF, then ~/.config/hunt/hunt.conf, then
+    the nearest hunt.conf at or above the working directory. The per-user file
+    outranks the checkout so that one machine-local answer can serve every
+    clone; a checkout that wants its own says so by carrying a hunt.conf only
+    when it means it.
     """
+    if explicit is not None:
+        path = Path(explicit).expanduser()
+        if not path.is_file():
+            raise ConfigError(f"--config is set to {path}, which is not a file")
+        return path
     override = os.environ.get("HUNT_CONF")
     if override:
         path = Path(override).expanduser()
@@ -95,8 +101,33 @@ def find_config(start: Path | None = None) -> Path:
     )
 
 
-def load_config(path: Path | None = None) -> Config:
-    conf = path if path is not None else find_config()
+def locate_write_config(explicit: Path | None = None) -> Path:
+    """Resolve the hunt.conf that `hunt init` should write to.
+
+    Unlike find_config, this never ascends from the working directory: init's
+    write target must never land on some unrelated ancestor's tracked
+    hunt.conf (a vault checkout's own default, meant only to be read). Only an
+    explicit --config path or HUNT_CONF is honored; anything else always
+    defaults to the per-user file, creating it there if it does not exist yet.
+
+    --config names the write target directly, so (like the per-user default)
+    it may point at a file that does not exist yet -- init creates it. HUNT_CONF
+    keeps its existing, stricter rule: an explicit pointer at a missing file is
+    a mistake, not a create request, since it is easy to typo or leave stale.
+    """
+    if explicit is not None:
+        return Path(explicit).expanduser()
+    override = os.environ.get("HUNT_CONF")
+    if override:
+        path = Path(override).expanduser()
+        if not path.is_file():
+            raise ConfigError(f"HUNT_CONF is set to {path}, which is not a file")
+        return path
+    return user_config()
+
+
+def load_config(path: Path | None = None, *, explicit: Path | None = None) -> Config:
+    conf = path if path is not None else find_config(explicit=explicit)
     try:
         text = conf.read_text(encoding="utf-8")
     except OSError as exc:
@@ -137,8 +168,8 @@ def require_configured(config: Config) -> Config:
     return config
 
 
-def load_configured(path: Path | None = None) -> Config:
-    return require_configured(load_config(path))
+def load_configured(path: Path | None = None, *, explicit: Path | None = None) -> Config:
+    return require_configured(load_config(path, explicit=explicit))
 
 
 def _vault_path(conf: Path, raw_path: str) -> Path | None:

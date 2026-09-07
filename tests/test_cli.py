@@ -569,6 +569,100 @@ def test_init_creates_a_user_conf_where_none_was_found(tmp_path):
     assert 'VAULT_BRANCH="drafting"' in conf.read_text()
 
 
+def test_init_ignores_an_ancestor_hunt_conf_and_uses_the_user_conf(tmp_path):
+    """An unrelated hunt.conf above cwd -- such as this tool's own tracked
+    file, which find_config's ascent would otherwise pick up -- must never
+    become init's write target. Only --config or HUNT_CONF may name one."""
+    home = tmp_path / "home"
+    (tmp_path / "hunt.conf").write_text('VAULT_PATH=""\nVAULT_BRANCH=""\n')
+    workdir = tmp_path / "nested" / "cwd"
+    workdir.mkdir(parents=True)
+    conf = home / ".config" / "hunt" / "hunt.conf"
+    result = init_in(
+        workdir,
+        "--vault-path",
+        str(tmp_path / "vault"),
+        "--vault-branch",
+        "drafting",
+        HOME=str(home),
+    )
+    assert result.returncode == 0, result.stderr
+    assert 'VAULT_BRANCH="drafting"' in conf.read_text()
+    assert 'VAULT_BRANCH="drafting"' not in (tmp_path / "hunt.conf").read_text()
+
+
+def test_init_config_flag_creates_a_file_that_does_not_exist(tmp_path):
+    """Unlike HUNT_CONF, --config names the write target directly, so (like
+    the per-user default) it may point at a file init has yet to create."""
+    home = tmp_path / "home"
+    conf = tmp_path / "custom" / "hunt.conf"
+    result = init_in(
+        tmp_path,
+        "--vault-path",
+        str(tmp_path / "vault"),
+        "--vault-branch",
+        "drafting",
+        "--config",
+        str(conf),
+        HOME=str(home),
+    )
+    assert result.returncode == 0, result.stderr
+    assert 'VAULT_BRANCH="drafting"' in conf.read_text()
+    assert not (home / ".config" / "hunt" / "hunt.conf").exists()
+
+
+def test_new_config_flag_overrides_the_usual_lookup(tmp_path):
+    """--config on a read command must be honored ahead of an ancestor
+    hunt.conf that find_config's ascent would otherwise pick up."""
+    home = tmp_path / "home"
+    (tmp_path / "hunt.conf").write_text('VAULT_PATH=""\nVAULT_BRANCH=""\n')
+    workdir = tmp_path / "nested" / "cwd"
+    workdir.mkdir(parents=True)
+    vault_path = tmp_path / "vault"
+    custom = tmp_path / "custom" / "hunt.conf"
+    custom.parent.mkdir(parents=True)
+    custom.write_text('VAULT_PATH="{}"\nVAULT_BRANCH="drafting"\n'.format(vault_path))
+    result = init_in(
+        workdir,
+        "--vault-path",
+        str(vault_path),
+        "--vault-branch",
+        "drafting",
+        conf=custom,
+    )
+    assert result.returncode == 0, result.stderr
+
+    result = run_hunt(
+        "new",
+        "--category",
+        "hunt",
+        "--name",
+        NAME,
+        "--config",
+        str(custom),
+        cwd=workdir,
+        HOME=str(home),
+        **GIT_IDENTITY,
+    )
+    assert result.returncode == 0, result.stderr
+    assert not (home / ".config" / "hunt" / "hunt.conf").exists()
+
+
+def test_new_config_flag_at_a_missing_file_is_an_error(tmp_path):
+    result = run_hunt(
+        "new",
+        "--category",
+        "hunt",
+        "--name",
+        NAME,
+        "--config",
+        str(tmp_path / "absent.conf"),
+        cwd=tmp_path,
+    )
+    assert result.returncode == 1
+    assert "absent.conf" in result.stderr
+
+
 def test_init_refuses_when_hunt_conf_is_pointed_at_a_missing_file(tmp_path):
     """An explicit pointer at a missing file is a mistake, not a create request."""
     result = init_in(
